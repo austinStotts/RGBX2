@@ -1,0 +1,386 @@
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica,
+    Arial, sans-serif;
+  height: 100%;
+  /* max-width: 38rem; */
+  /* padding: 2rem; */
+}
+
+
+.simple-label {
+  margin: 10px;
+  color: rgb(58, 58, 255);
+}
+
+.main-view-switch-wrapper {
+  border: 1px solid orange;
+  position: relative;
+  width: 100%;
+  display: flex;
+}
+
+.center {
+  position: absolute;
+  -ms-transform: translate(-50%);
+  transform: translate(-50%);
+  left: 50%;
+}
+
+.button {
+  width: 150px;
+  height: 30px;
+  font-size: 22px;
+  font-family: sans-serif;
+  border-radius: 0%;
+  border: 1px solid black;
+  background-color: rgb(231, 231, 231);
+}
+
+.button:hover {
+  cursor: pointer;
+}
+
+
+.simple-btn {
+  color: rgb(209, 171, 0);
+}
+
+.advanced-btn {
+  color: rgb(58, 58, 255);
+}
+
+
+.advanced-view-wrapper {
+
+}
+
+.advanced-view-main {
+
+}
+
+.simple-view-wrapper {
+
+}
+
+.simple-view-main {
+  font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+  font-size: 20px;
+  margin: 40px 20px;
+}
+
+.simple-text-input {
+  display: block;
+  width: 250px;
+  height: 18px;
+  margin: 5px 0px 5px 0px;
+  resize: none;
+}
+
+.simple-text-input::placeholder {
+  color: rgba(58, 58, 255, 0.61);
+}
+
+.simple-text-input:focus {
+  outline: none !important;
+  border: 1px solid;
+  border-color: rgb(58, 58, 255);
+  border-radius: 2px;
+
+}
+
+.simple-input-file-btn {
+  width: 150px;
+  background-color: rgba(58, 58, 255, 0.61);
+  color: white;
+  border: 1px solid black;
+}
+
+.simple-input-file-btn:hover {
+  cursor: pointer;
+}
+
+.simple-label-num {
+  margin-top: 10px;
+}
+
+.success-btn {
+  background-color: rgb(98, 255, 98);
+  color: black;
+}
+
+.chin-wrapper {
+  position: absolute;
+  width: 100%;
+  height: 50px;
+  display: grid;
+  grid-template-columns: 30% 30% 40%;
+  bottom: 0%;
+  left: 0%;
+  background-color: rgb(168, 168, 168);
+  margin: 0px;
+  padding: 0px;
+}
+
+.chin-save-location-wrapper {
+  margin-left: 30px;
+}
+
+.chin-csv-location-wrapper {
+  margin-left: 30px;
+}
+
+.chin-save-location-label {
+  display: inline-block;
+  position: relative;
+  bottom: 13px;
+  margin-right: 10px;
+}
+
+.chin-csv-location-label {
+  display: inline-block;
+  position: relative;
+  bottom: 13px;
+  margin-right: 10px;
+}
+
+.chin-box {
+  position: relative;
+  display: inline-block;
+  border: 2px solid black;
+  width: 40px;
+  height: 40px;
+  margin-top: 3px;
+  border-radius: 4px;
+}
+
+.check-img {
+  margin: 0;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  -ms-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+}
+
+.chin-start-btn {
+  width: 200px;
+  height: 40px;
+  margin-top: 5px;
+  margin-right: 10px;
+  float: right;
+  border: 1px solid black;
+  font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+  font-size: 18px;
+  letter-spacing: 4px;
+  font-style: italic;
+  color: rgb(58, 58, 255);
+}
+
+.chin-start-btn:hover {
+  cursor: pointer;
+}
+
+.disabled-btn {
+  opacity: 50%;
+}
+
+.disabled-btn:hover {
+  cursor: not-allowed;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.advanced-input-csv-wrapper {
+  position: relative;
+  width: 80%;
+  height: 100px;
+  border: 1px dashed black;
+}
+
+.advanced-csv-drag-label {
+  font-family: 'Courier New', Courier, monospace;
+  color: gray;
+  margin: 0;
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  width: 90%;
+  -ms-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.advanced-csv-btn {
+  margin: 0;
+  position: absolute;
+  top: 65%;
+  left: 50%;
+  -ms-transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%);
+}
+
+.advanced-csv-btn:hover {
+  cursor: pointer;
+}
+
+.dragging {
+  border-color: rgb(98, 255, 98);
+  border-width: 2px;
+  width: 298px;
+  height: 98px;
+}
+
+.advanced-view-main {
+  display: grid;
+  grid-template-columns: 50% 50%;
+  padding-top: 50px;
+  /* border: 1px solid black; */
+  
+}
+
+.filter-selector {
+  /* width: 200px; */
+}
+
+.advanced-wrapper-right {
+  /* border: 1px dashed black; */
+}
+
+.advanced-details-list-wrapper {
+  /* border: 1px dashed red; */
+}
+
+.filter-list-label {
+  margin: 1px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.filter-items-list {
+  margin: 0px 0px;
+  border: 1px solid black;
+  border-radius: 5px;
+  padding: 3px;
+  max-width: 70%;
+
+}
+
+.filter-list-item {
+  font-size: 14px;
+  display: inline-block;
+  margin: 3px;
+  padding: 4px;
+  border-radius: 4px;
+  user-select: none;
+  font-weight: 600;
+}
+
+.filter-list-included {
+  border: 2px solid rgb(88, 173, 88);
+  background-color: rgb(98, 255, 98);
+}
+
+.filter-list-excluded {
+  border: 2px solid rgb(177, 59, 59);
+  background-color: rgb(255, 65, 65);
+  text-decoration: line-through;
+}
+
+.filter-list-selected {
+  border-color: orange;
+}
+
+.filter-list-item:hover {
+  cursor: pointer;
+  border-color: orange;
+}
+
+.filter-item-details-wrapper {
+  display: grid;
+  grid-template-columns: 50% 50%;
+  padding: 3px;
+}
+
+.item-details-key {
+  /* display: inline-block; */
+}
+
+.item-details-value {
+  /* display: inline-block; */
+  font-weight: 700;
+}
+
+
+.room-filter-wrapper {
+  margin: 15px 0px;
+}
+
+.item-filter-wrapper {
+  margin: 15px 0px;
+}
+
+.item-wrapper {
+  margin: 15px 0px;
+}
+
+.view-switch-wrapper {
+  /* border: 1px dashed plum; */
+  display: grid;
+  grid-template-columns: [one] 30% [two] 20% [three] 20% [four] 30% [five];
+}
+
+.simple-view-button {
+  float: left;
+  background-color: black;
+  color: white;
+  grid-column-start: two;
+  grid-column-end: three;
+  text-align: center;
+}
+
+.simple-view-button:hover {
+  cursor: pointer;
+}
+
+.advanced-view-button {
+  float: right;
+  background-color: black;
+  color: white;
+  grid-column-start: three;
+  grid-column-end: four;
+  text-align: center;
+}
+
+.advanced-view-button:hover {
+  cursor: pointer;
+}
+
+.active-view {
+  background-color: white !important;
+  color: black;
+  border-top: 1px solid black;
+  border-right: 1px solid black;
+  border-left: 1px solid black;
+}
+
+.void-space {
+  width: 100%;
+  border-bottom: 1px solid black;
+}
+
+.item-details-row {
+  background-color: rgb(196, 196, 196);
+}
