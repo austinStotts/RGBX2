@@ -1,12 +1,13 @@
 import * as React from 'react';
 import rgbx from './rgbx';
+import { WebGLSortRenderer } from './webGLRenderer';
 import testimg from './cat.jpg';
 export default class App extends React.Component {
     constructor (props) {
         super(props);
         this.canvasWrapper = React.createRef();
         this.canvas = React.createRef();
-        // this.canvas = null;
+        this.renderer = null;
         this.state = {
             currentTool: 'lasso',
             isDrawing: false,
@@ -17,6 +18,8 @@ export default class App extends React.Component {
             startPoint: null,
             previousPoint: null,
             tempSelectionRect: null,
+            scale: 1,
+            offset: { x: 0, y: 0 },
         }
 
         this.invert = this.invert.bind(this);
@@ -28,9 +31,20 @@ export default class App extends React.Component {
         this.drawLine = this.drawLine.bind(this);
         this.finalizeRectangleSelection = this.finalizeRectangleSelection.bind(this);
         this.changeTool = this.changeTool.bind(this);
+        this.handleScroll = this.handleScroll.bind(this);
+        this.drawCanvas = this.drawCanvas.bind(this);
+        this.drawSelectionOverlays = this.drawSelectionOverlays.bind(this);
+        this.getMousePosition = this.getMousePosition.bind(this);
+        this.handleKeypress = this.handleKeypress.bind(this);
+        this.sort = this.sort.bind(this);
     }
 
     componentDidMount () {
+
+        let webGLCanvas = document.createElement('canvas');
+        this.renderer = new WebGLSortRenderer(webGLCanvas);
+
+        window.addEventListener('keydown', this.handleKeypress)
 
         let img = new Image();
         img.src = testimg;
@@ -52,39 +66,72 @@ export default class App extends React.Component {
     }
 
     componentDidUpdate () {
-        let ctx = this.canvas.current.getContext('2d');
 
-        let newMatrix = this.state.matrix;
-        let newWidth = newMatrix[0].length;
-        let newHeight = newMatrix.length;
+        this.drawCanvas();
+        // let ctx = this.canvas.current.getContext('2d');
 
-        this.canvas.current.width = newWidth;
-        this.canvas.current.height = newHeight;
+        // let newMatrix = this.state.matrix;
+        // let newWidth = newMatrix[0].length;
+        // let newHeight = newMatrix.length;
 
-        let imageBuffer = rgbx.matrixToBuffer(newMatrix);
-        let imageData = new ImageData(imageBuffer, newWidth, newHeight);
-        ctx.putImageData(imageData, 0, 0);
+        // this.canvas.current.width = newWidth;
+        // this.canvas.current.height = newHeight;
 
-        let { isDrawing, currentTool, tempSelectionRect, selectionMask } = this.state;
-        // console.log(tempSelectionRect)
-        if(tempSelectionRect && isDrawing && currentTool == 'rectangle') {
-            ctx.strokeStyle = 'rgba(255, 0, 0, 255)';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(tempSelectionRect.x, tempSelectionRect.y, tempSelectionRect.width, tempSelectionRect.height);
-        } else if(selectionMask) {
-            ctx.fillStyle = 'rgba(255, 0, 255, 0.3)';
-            for(let y = 0; y < selectionMask.length; y++) {
-                for(let x = 0; x < selectionMask[y].length; x++) {
-                    if(selectionMask[y][x]) {
-                        ctx.fillRect(x, y, 1, 1);
-                    }
-                }
-            }
+        // let imageBuffer = rgbx.matrixToBuffer(newMatrix);
+        // let imageData = new ImageData(imageBuffer, newWidth, newHeight);
+        // ctx.putImageData(imageData, 0, 0);
+
+        // let { isDrawing, currentTool, tempSelectionRect, selectionMask } = this.state;
+        // // console.log(tempSelectionRect)
+        // if(tempSelectionRect && isDrawing && currentTool == 'rectangle') {
+        //     ctx.strokeStyle = 'rgba(255, 0, 0, 255)';
+        //     ctx.lineWidth = 2;
+        //     ctx.strokeRect(tempSelectionRect.x, tempSelectionRect.y, tempSelectionRect.width, tempSelectionRect.height);
+        // } else if(selectionMask) {
+        //     ctx.fillStyle = 'rgba(255, 0, 255, 0.3)';
+        //     for(let y = 0; y < selectionMask.length; y++) {
+        //         for(let x = 0; x < selectionMask[y].length; x++) {
+        //             if(selectionMask[y][x]) {
+        //                 ctx.fillRect(x, y, 1, 1);
+        //             }
+        //         }
+        //     }
+        // }
+    }
+
+    componentWillUnmount () {
+        window.removeEventListener(keydown, this.handleKeypress);
+    }
+
+    handleKeypress (event) {
+        if(event.code == 'Space') {
+            event.preventDefault();
+            this.resetView();
         }
+    }
+
+    resetView () {
+        let mainCanvas = this.canvas.current;
+        if(!mainCanvas) return;
+
+        let { width, height } = this.state;
+
+        let centeredOffsetX = (mainCanvas.width - width);
+        let centeredOffsetY = (mainCanvas.height - height);
+
+        this.setState({
+            scale: 1,
+            offset: { x: centeredOffsetX, y: centeredOffsetY }
+        })
     }
 
     invert () {
         let newMatrix = rgbx.invert(this.state.matrix, this.state.selectionMask);
+        this.setState({ matrix: newMatrix });
+    }
+
+    sort () {
+        let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.selectionMask, 'ascending', this.renderer);
         this.setState({ matrix: newMatrix });
     }
 
@@ -96,6 +143,70 @@ export default class App extends React.Component {
     zoomOut () {
         let newMatrix = rgbx.resize(this.state.matrix, 0.5);
         this.setState({ matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
+    }
+
+    getMousePosition (event) {
+        let { scale, offset } = this.state;
+        let imageX = (event.nativeEvent.offsetX - offset.x) / scale;
+        let imageY = (event.nativeEvent.offsetY - offset.y) / scale;
+        return { x: Math.floor(imageX), y: Math.floor(imageY) };
+    }
+
+    drawCanvas () {
+        let { matrix, scale, offset } = this.state;
+        let mainCanvas = this.canvas.current;
+        if(!mainCanvas || !matrix || matrix.length == 0) return;
+
+        let mainCTX = mainCanvas.getContext('2d');
+
+        let hiddenCanvas = document.createElement('canvas');
+        let hiddenCTX = hiddenCanvas.getContext('2d');
+        hiddenCanvas.width = this.state.width;
+        hiddenCanvas.height = this.state.height;
+
+        let imageBuffer = rgbx.matrixToBuffer(matrix);
+        let imageData = new ImageData(imageBuffer, this.state.width, this.state.height);
+        hiddenCTX.putImageData(imageData, 0, 0);
+
+        mainCTX.fillStyle = '#CCCCCC';
+        mainCTX.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+
+        mainCTX.drawImage(
+            hiddenCanvas,
+            offset.x,
+            offset.y,
+            this.state.width * scale,
+            this.state.height * scale,
+        );
+
+        this.drawSelectionOverlays(mainCTX);
+    }
+
+    drawSelectionOverlays (ctx) {
+        let { scale, offset, selectionMask, isDrawing, currentTool, tempSelectionRect } = this.state;
+        if(!selectionMask && !tempSelectionRect) return;
+
+        ctx.save();
+
+        ctx.translate(offset.x, offset.y);
+        ctx.scale(scale, scale);
+
+        if(!isDrawing && currentTool == 'rectangle' && tempSelectionRect) {
+            ctx.strokeStyle = 'rgba(0, 150, 255, 0.9)';
+            ctx.lineWidth = 1 / scale;
+            ctx.strokeRect(tempSelectionRect.x, tempSelectionRect.y, tempSelectionRect.width, tempSelectionRect.height);
+        } else if(selectionMask) {
+            ctx.fillStyle = 'rgba(0, 150, 255, 0.3)';
+            for(let y = 0; y < selectionMask.length; y++) {
+                for(let x = 0; x < selectionMask[y].length; x++) {
+                    if(selectionMask[y][x]) {
+                        ctx.fillRect(x, y, 1, 1);
+                    }
+                }
+            }
+        }
+
+        ctx.restore()
     }
 
     drawLine (start, end, callback) {
@@ -177,37 +288,55 @@ export default class App extends React.Component {
     }
 
     handleMouseDown (event) {
-        let { offsetX, offsetY } = event.nativeEvent;
-        let startPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) };
+
+        if(event.button == 1) {
+            event.preventDefault();
+            this.setState({
+                isPanning: true,
+                previousPoint: { x: event.nativeEvent.offsetX, y: event.nativeEvent.offsetY }
+            });
+            return;
+        }
+
+        let pos = this.getMousePosition(event);
+
+        // let { offsetX, offsetY } = event.nativeEvent;
+        // let startPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) };
 
         this.setState({ 
             isDrawing: true,
-            startPoint: startPoint,
-            previousPoint: startPoint,
+            startPoint: pos,
+            previousPoint: pos,
             selectionMask: null,
             tempSelectionRect: null,
         })
 
         if(this.state.currentTool == 'lasso') {
             let newMask = rgbx.createMask(this.state.width, this.state.height);
-            if(newMask[startPoint.y]?.[startPoint.x] != undefined) {
-                newMask[startPoint.y][startPoint.x] = true;
+            if(newMask[pos.y]?.[pos.x] != undefined) {
+                newMask[pos.y][pos.x] = true;
                 this.setState({ selectionMask: newMask })
             }
         }
     }
 
     handleMouseUp (event) {
+        if(this.state.isPanning) {
+            this.setState({ isPanning: false });
+            return;
+        }
+
         if(!this.state.isDrawing) return;
+        let pos = this.getMousePosition(event);
 
         let { currentTool, startPoint, previousPoint } = this.state;
 
         this.setState({ isDrawing: false, tempSelectionRect: null });
 
         if (currentTool == 'rectangle') {
-            let { offsetX, offsetY } = event.nativeEvent;
-            let endPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) };
-            this.finalizeRectangleSelection(endPoint);
+            // let { offsetX, offsetY } = event.nativeEvent;
+            // let endPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) };
+            this.finalizeRectangleSelection(pos);
         } else if (currentTool == 'lasso') {
             this.drawLine(previousPoint, startPoint, () => {
                 this.fillSelectionMask();
@@ -216,63 +345,111 @@ export default class App extends React.Component {
     }
 
     handleMouseMove (event) {
+        if(this.state.isPanning) {
+            let { previousPoint, offset } = this.state;
+            let { offsetX, offsetY } = event.nativeEvent;
+            let dx = offsetX - previousPoint.x;
+            let dy = offsetY - previousPoint.y;
+
+            this.setState({
+                offset: { x: offset.x + dx, y: offset.y + dy },
+                previousPoint: { x: offsetX, y: offsetY },
+            });
+            return;
+        }
+
         if(!this.state.isDrawing) return;
+        let pos = this.getMousePosition(event);
 
         let { currentTool, startPoint, previousPoint } = this.state;
-        let { offsetX, offsetY } = event.nativeEvent;
-        let currentPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) }
+        // let { offsetX, offsetY } = event.nativeEvent;
+        // let currentPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) }
 
 
         if(currentTool == 'lasso') {
             if(previousPoint) {
-                this.drawLine(previousPoint, currentPoint);
+                this.drawLine(previousPoint, pos);
             }
 
-            this.setState({ previousPoint: currentPoint });
+            this.setState({ previousPoint: pos });
         } else if (currentTool == 'rectangle') {
             let rect = {
-                x: Math.min(startPoint.x, currentPoint.x),
-                y: Math.min(startPoint.y, currentPoint.y),
-                width: Math.abs(startPoint.x - currentPoint.x),
-                height: Math.abs(startPoint.y - currentPoint.y),
+                x: Math.min(startPoint.x, pos.x),
+                y: Math.min(startPoint.y, pos.y),
+                width: Math.abs(startPoint.x - pos.x),
+                height: Math.abs(startPoint.y - pos.y),
             }
 
             this.setState({ tempSelectionRect: rect });
         }
+    }
 
-        // let x = Math.min(startPoint.x, offsetX);
-        // let y = Math.min(startPoint.y, offsetY);
-        // let width = Math.abs(startPoint.x - offsetX);
-        // let height = Math.abs(startPoint.y - offsetY);
+    handleScroll (event) {
+        // event.preventDefault();
 
-        // this.setState({ selection: { x, y, width, height } })
+        let { offsetX, offsetY } = event.nativeEvent;
+        let { scale, offset } = this.state;
+
+        let zoomSensitivity = 0.1;
+        let direction = event.deltaY < 0 ? 1 : -1;
+        let newScale = Math.max(0.1, Math.min(scale + direction * zoomSensitivity, 10))
+
+        let worldX = (offsetX - offset.x) / scale;
+        let worldY = (offsetY - offset.y) / scale;
+
+        let newOffsetX = offsetX - worldX * newScale;
+        let newOffsetY = offsetY - worldY * newScale;
+
+        this.setState({
+            scale: newScale,
+            offset: { x: newOffsetX, y: newOffsetY }
+        })
     }
 
     changeTool (newTool) {
-        this.setState({ currentTool: newTool });
+        this.setState({ currentTool: newTool }, () => {
+            this.canvas.current.classList.value = 'canvas';
+            switch (newTool) {
+                case 'rectangle':
+                    this.canvas.current.classList.add('rectangle-cursor');
+                case 'lasso':
+                    this.canvas.current.classList.add('lasso-cursor');
+            }   
+
+        });
+
     }
 
     render() {
         return (
-            <div>
-                <div id='canvas-wrapper' ref={this.canvasWrapper}>
+            <div className='main-wrapper'>
+                <div className='tools-wrapper'>
+                    <div className='utility-wrapper'>
+                        <button className='tool' onClick={this.zoomIn}>zoom in</button>
+                        <button className='tool' onClick={this.zoomOut}>zoom out</button>
+                        <button className='tool' onClick={()=>{this.changeTool('rectangle')}}>rectangle</button>
+                        <button className='tool' onClick={()=>{this.changeTool('lasso')}}>lasso</button>
+                    </div>
+                    <div className='style-wrapper'>
+                        <button className='tool' onClick={this.invert}>invert</button>
+                        <button className='tool' onClick={this.sort}>sort</button>
+                    </div>
+                </div>
+                <div id='canvas-wrapper' className='canvas-wrapper' ref={this.canvasWrapper}>
                     <canvas
+                        className='canvas'
                         ref={this.canvas}
                         onMouseDown={this.handleMouseDown}
                         onMouseUp={this.handleMouseUp}
                         onMouseLeave={this.handleMouseUp}
                         onMouseMove={this.handleMouseMove}
+                        onWheel={this.handleScroll}
                     >
                     </canvas>
                 </div>
-                <button onClick={this.invert}>invert</button>
+                
                 <div>
-                    <button onClick={this.zoomIn}>zoom in</button>
-                    <button onClick={this.zoomOut}>zoom out</button>
-                </div>
-                <div>
-                    <button onClick={()=>{this.changeTool('rectangle')}}>rectangle</button>
-                    <button onClick={()=>{this.changeTool('lasso')}}>lasso</button>
+                    
                 </div>
             </div>
         )

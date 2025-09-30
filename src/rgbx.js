@@ -40,6 +40,33 @@ let matrixToBuffer = (matrix) => {
     return buffer;
 }
 
+let sortPixels = (matrix, mask, direction = 'ascending', renderer) => {
+    if (!mask || !renderer) {
+      console.log("A selection is required and renderer must be initialized.");
+      return;
+    }
+    
+    console.log("Starting GPU pixel sort...");
+    const startTime = performance.now();
+
+    // The CPU's only job is to kick off the GPU process
+    const sortedImageData = renderer.performGpuSort(
+      matrix,
+      mask,
+      direction
+    );
+    
+    const endTime = performance.now();
+    console.log(`GPU sort completed in ${endTime - startTime}ms`);
+    
+    // Update the state with the final result from the GPU
+    // This will trigger a redraw via componentDidUpdate
+    console.log(sortedImageData);
+    let m = bufferToMatrix(sortedImageData.data, matrix[0].length, matrix.length);
+    // console.log(m);
+    return m;
+}
+
 let invert = (matrix, mask) => {
     if (!mask && mask.length == 0) {
         return;
@@ -156,4 +183,4 @@ let createMask = (w, h) => {
 
 
 
-export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask }
+export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels }
