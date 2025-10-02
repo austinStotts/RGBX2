@@ -2,11 +2,15 @@ import * as React from 'react';
 import rgbx from './rgbx';
 import { WebGLSortRenderer } from './webGLRenderer';
 import testimg from './cat.jpg';
+import ToolModal from './components/ToolModal';
+
 export default class App extends React.Component {
     constructor (props) {
         super(props);
         this.canvasWrapper = React.createRef();
         this.canvas = React.createRef();
+        this.dialog = React.createRef();
+        this.resizeInput = React.createRef();
         this.renderer = null;
         this.state = {
             currentTool: 'lasso',
@@ -20,11 +24,19 @@ export default class App extends React.Component {
             tempSelectionRect: null,
             scale: 1,
             offset: { x: 0, y: 0 },
+            resizeScale: 1,
+            tempResizeScale: 1,
+            isResizeModalOpen: false,
         }
 
         this.invert = this.invert.bind(this);
-        this.zoomIn = this.zoomIn.bind(this);
-        this.zoomOut = this.zoomOut.bind(this);
+        // this.zoomIn = this.zoomIn.bind(this);
+        // this.zoomOut = this.zoomOut.bind(this);
+        // this.resize = this.resize.bind(this);
+        this.resizeModal = this.resizeModal.bind(this);
+        this.resizeModalCancel = this.resizeModalCancel.bind(this);
+        this.resizeModalConfirm = this.resizeModalConfirm.bind(this);
+        this.resizeInputUpdate = this.resizeInputUpdate.bind(this);
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
         this.handleMouseMove = this.handleMouseMove.bind(this);
@@ -66,37 +78,7 @@ export default class App extends React.Component {
     }
 
     componentDidUpdate () {
-
         this.drawCanvas();
-        // let ctx = this.canvas.current.getContext('2d');
-
-        // let newMatrix = this.state.matrix;
-        // let newWidth = newMatrix[0].length;
-        // let newHeight = newMatrix.length;
-
-        // this.canvas.current.width = newWidth;
-        // this.canvas.current.height = newHeight;
-
-        // let imageBuffer = rgbx.matrixToBuffer(newMatrix);
-        // let imageData = new ImageData(imageBuffer, newWidth, newHeight);
-        // ctx.putImageData(imageData, 0, 0);
-
-        // let { isDrawing, currentTool, tempSelectionRect, selectionMask } = this.state;
-        // // console.log(tempSelectionRect)
-        // if(tempSelectionRect && isDrawing && currentTool == 'rectangle') {
-        //     ctx.strokeStyle = 'rgba(255, 0, 0, 255)';
-        //     ctx.lineWidth = 2;
-        //     ctx.strokeRect(tempSelectionRect.x, tempSelectionRect.y, tempSelectionRect.width, tempSelectionRect.height);
-        // } else if(selectionMask) {
-        //     ctx.fillStyle = 'rgba(255, 0, 255, 0.3)';
-        //     for(let y = 0; y < selectionMask.length; y++) {
-        //         for(let x = 0; x < selectionMask[y].length; x++) {
-        //             if(selectionMask[y][x]) {
-        //                 ctx.fillRect(x, y, 1, 1);
-        //             }
-        //         }
-        //     }
-        // }
     }
 
     componentWillUnmount () {
@@ -126,23 +108,41 @@ export default class App extends React.Component {
     }
 
     invert () {
-        let newMatrix = rgbx.invert(this.state.matrix, this.state.selectionMask);
-        this.setState({ matrix: newMatrix });
+        if(!this.state.selectionMask) {
+            let newMatrix = rgbx.invert(this.state.matrix, this.state.matrix);
+            this.setState({ matrix: newMatrix });
+        } else {
+            let newMatrix = rgbx.invert(this.state.matrix, this.state.selectionMask);
+            this.setState({ matrix: newMatrix });
+        }
     }
 
     sort () {
-        let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.selectionMask, 'ascending', this.renderer);
-        this.setState({ matrix: newMatrix });
+        if(!this.state.selectionMask) {
+            let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.matrix, 'decending', this.renderer);
+            this.setState({ matrix: newMatrix });
+        } else {
+            let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.selectionMask, 'decending', this.renderer);
+            this.setState({ matrix: newMatrix });
+        }
     }
 
-    zoomIn () {
-        let newMatrix = rgbx.resize(this.state.matrix, 2.0);
-        this.setState({ matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
+    resizeModal (event) {
+        this.setState({ isResizeModalOpen: true });
     }
 
-    zoomOut () {
-        let newMatrix = rgbx.resize(this.state.matrix, 0.5);
-        this.setState({ matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
+    resizeModalCancel (event) {
+        this.setState({ isResizeModalOpen: false })
+    }
+
+    resizeModalConfirm (event) {
+        let newMatrix = rgbx.resize(this.state.matrix, Number(this.state.resizeScale))
+        this.setState({ isResizeModalOpen: false, matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
+    }
+
+    resizeInputUpdate (event) {
+        this.setState({ resizeScale: event.target.value });
+        console.log(event.target.value)
     }
 
     getMousePosition (event) {
@@ -425,8 +425,8 @@ export default class App extends React.Component {
             <div className='main-wrapper'>
                 <div className='tools-wrapper'>
                     <div className='utility-wrapper'>
-                        <button className='tool' onClick={this.zoomIn}>zoom in</button>
-                        <button className='tool' onClick={this.zoomOut}>zoom out</button>
+                        <button className='tool' onClick={this.resizeModal}>resize</button>
+                        {/* <button className='tool' onClick={this.zoomOut}>zoom out</button> */}
                         <button className='tool' onClick={()=>{this.changeTool('rectangle')}}>rectangle</button>
                         <button className='tool' onClick={()=>{this.changeTool('lasso')}}>lasso</button>
                     </div>
@@ -447,10 +447,10 @@ export default class App extends React.Component {
                     >
                     </canvas>
                 </div>
-                
-                <div>
-                    
-                </div>
+                {this.state.isResizeModalOpen ? 
+                (<ToolModal title={'Resize'} onConfirm={this.resizeModalConfirm} onCancel={this.resizeModalCancel}>
+                    <input onChange={this.resizeInputUpdate} placeholder='scale' className='resize-modal-input'></input>
+                </ToolModal>) : <span/>}
             </div>
         )
     }

@@ -177,8 +177,8 @@ let resize = (matrix, scale) => {
     return nMatrix;
 }
 
-let createMask = (w, h) => {
-    return Array(h).fill(null).map(() => Array(w).fill(false));
+let createMask = (w, h, fill=false) => {
+    return Array(h).fill(null).map(() => Array(w).fill(fill));
 }
 
 
