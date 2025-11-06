@@ -3,7 +3,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('electron', {
-  startDrag: (fileName) => ipcRenderer.send('ondragstart', fileName),
-  getScope: () => ipcRenderer.send('getScope'),
-  returnScope: (callback) => { ipcRenderer.on('returnScope', (event, scope) => callback(scope)) }
+  saveCanvas: (data, fileType) => ipcRenderer.send('save-canvas', data, fileType),
+  openDialog: () => ipcRenderer.invoke('open-dialog'),
 })

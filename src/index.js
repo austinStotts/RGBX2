@@ -1,8 +1,13 @@
 import * as React from 'react';
 import rgbx from './rgbx';
 import { WebGLSortRenderer } from './webGLRenderer';
+// import testimg from './debug.png';
 import testimg from './cat.jpg';
 import ToolModal from './components/ToolModal';
+import SaveModal from './components/SaveModal';
+import SortModal from './components/SortModal';
+import ResizeModal from './components/ResizeModal';
+import NewModal from './components/newModal';
 
 export default class App extends React.Component {
     constructor (props) {
@@ -27,16 +32,21 @@ export default class App extends React.Component {
             resizeScale: 1,
             tempResizeScale: 1,
             isResizeModalOpen: false,
+            isSortModalOpen: false,
+            isSaveModalOpen: false,
+            isNewModalOpen: false,
+            sortOptions: {
+                axis: 'x',
+                criterion: 'brightness',
+                direction: 'ascending',
+            },
+            clipboard: null,
+            isPasting: false,
         }
 
         this.invert = this.invert.bind(this);
-        // this.zoomIn = this.zoomIn.bind(this);
-        // this.zoomOut = this.zoomOut.bind(this);
-        // this.resize = this.resize.bind(this);
-        this.resizeModal = this.resizeModal.bind(this);
-        this.resizeModalCancel = this.resizeModalCancel.bind(this);
-        this.resizeModalConfirm = this.resizeModalConfirm.bind(this);
-        this.resizeInputUpdate = this.resizeInputUpdate.bind(this);
+        this.resize = this.resize.bind(this);
+        this.manageResizeModal = this.manageResizeModal.bind(this);
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.handleMouseUp = this.handleMouseUp.bind(this);
         this.handleMouseMove = this.handleMouseMove.bind(this);
@@ -49,6 +59,15 @@ export default class App extends React.Component {
         this.getMousePosition = this.getMousePosition.bind(this);
         this.handleKeypress = this.handleKeypress.bind(this);
         this.sort = this.sort.bind(this);
+        this.manageSortModal = this.manageSortModal.bind(this);
+        this.save = this.save.bind(this);
+        this.manageSaveModal = this.manageSaveModal.bind(this);
+        this.newCanvas = this.newCanvas.bind(this);
+        this.manageNewModal = this.manageNewModal.bind(this);
+        this.open = this.open.bind(this);
+        this.openDialog = this.openDialog.bind(this);
+        this.copy = this.copy.bind(this);
+        this.paste = this.paste.bind(this);
     }
 
     componentDidMount () {
@@ -85,6 +104,58 @@ export default class App extends React.Component {
         window.removeEventListener(keydown, this.handleKeypress);
     }
 
+    manageSaveModal (newState) {
+        if(newState) {
+            this.setState({ isSaveModalOpen: true });
+        } else {
+            this.setState({ isSaveModalOpen: false });
+        }
+    }
+
+    save (fileType) {
+        if(fileType == 'png') {
+            let data = this.canvas.current.toDataURL('image/png');
+            window.electron.saveCanvas(data, 'png');
+        } else if(fileType == 'jpg') {
+            let data = this.canvas.current.toDataURL('image/jpeg');
+            window.electron.saveCanvas(data, 'jpg');
+        } else {
+            let data = this.canvas.current.toDataURL('image/jpeg');
+            window.electron.saveCanvas(data, 'jpg');
+        }
+        
+        // console.log(window)
+    }
+
+    open (data) {
+        if(data) {
+            console.log(data);
+            let img = new Image();
+            img.onload = () => {
+
+                let hiddenCanvas = document.createElement('canvas');
+                let hiddenCTX = hiddenCanvas.getContext('2d');
+                hiddenCanvas.width = img.width;
+                hiddenCanvas.height = img.height;
+                hiddenCTX.drawImage(img, 0, 0);
+
+                let hiddenData = hiddenCTX.getImageData(0, 0, img.width, img.height);
+                let buffer = hiddenData.data;
+                let matrix = rgbx.bufferToMatrix(buffer, img.width, img.height);
+                this.setState({ matrix, width: img.width, height: img.height });
+            }
+
+            img.src = `data:${data.mimeType};base64,${data.data}`;
+        } else {
+            console.log('error rendering that file')
+        }
+    }
+
+    async openDialog () {
+        console.log('opening from index');
+        this.open(await window.electron.openDialog());
+    }
+
     handleKeypress (event) {
         if(event.code == 'Space') {
             event.preventDefault();
@@ -117,33 +188,88 @@ export default class App extends React.Component {
         }
     }
 
-    sort () {
+    manageSortModal (newState) {
+        if(newState) {
+            this.setState({ isSortModalOpen: true });
+        } else {
+            this.setState({ isSortModalOpen: false });
+        }
+    }
+
+    sort (options = { axis: 'x', criterion: 'brightness', direction: 'ascending' }) {
+        let { axis, criterion, direction } = options;
         if(!this.state.selectionMask) {
-            let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.matrix, 'decending', this.renderer);
+            let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.matrix, axis, criterion, direction, this.renderer);
             this.setState({ matrix: newMatrix });
         } else {
-            let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.selectionMask, 'decending', this.renderer);
+            let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.selectionMask, axis, criterion, direction, this.renderer);
             this.setState({ matrix: newMatrix });
         }
     }
 
-    resizeModal (event) {
-        this.setState({ isResizeModalOpen: true });
+    manageResizeModal (newState) {
+        if(newState) {
+            this.setState({ isResizeModalOpen: true });
+        } else {
+            this.setState({ isResizeModalOpen: false });
+        }
     }
 
-    resizeModalCancel (event) {
-        this.setState({ isResizeModalOpen: false })
+    resize (scale) {
+        let newMatrix = rgbx.resize(this.state.matrix, Number(scale))
+        this.setState({ matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
     }
 
-    resizeModalConfirm (event) {
-        let newMatrix = rgbx.resize(this.state.matrix, Number(this.state.resizeScale))
-        this.setState({ isResizeModalOpen: false, matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
+    manageNewModal (newState) {
+        if(newState) {
+            this.setState({ isNewModalOpen: true });
+        } else {
+            this.setState({ isNewModalOpen: false });
+        }
     }
 
-    resizeInputUpdate (event) {
-        this.setState({ resizeScale: event.target.value });
-        console.log(event.target.value)
+    newCanvas (options) {
+        let w = options.width;
+        let h = options.height;
+        let fill = {r: 30, g: 30, b: 255, a: 255}
+        let newMatrix = Array(h).fill(null).map(() => Array(w).fill(fill));
+        this.setState({
+            matrix: newMatrix,
+            width: w,
+            height: h,
+        })
     }
+
+    copy () {
+        if(!this.state.selectionMask) {
+            return
+        }
+        const clipboard = rgbx.extractMaskedRegion(this.state.matrix, this.state.selectionMask);
+        console.log('Clipboard:', clipboard);
+        this.setState({ clipboard });
+    }
+
+    paste () {
+        // let newMatrix = rgbx.pasteMaskedRegion(this.state.matrix, this.state.clipboard, 2, 2);
+        // this.setState({ matrix: newMatrix })
+        if(this.state.isPasting) { // might need to check if other actions besides paste are active
+            // end paste
+            this.setState({ isPasting: false });
+        } else {
+            this.setState({ isPasting: true });
+        }
+    }
+
+    pasteMouseDown () {
+
+    }
+
+
+
+
+
+
+
 
     getMousePosition (event) {
         let { scale, offset } = this.state;
@@ -178,6 +304,8 @@ export default class App extends React.Component {
             this.state.width * scale,
             this.state.height * scale,
         );
+
+        // this.canvasWrapper.current.style.width = this.state.width
 
         this.drawSelectionOverlays(mainCTX);
     }
@@ -288,6 +416,18 @@ export default class App extends React.Component {
     }
 
     handleMouseDown (event) {
+        
+        if(event.button == 2) {
+            event.preventDefault();
+            this.setState({
+                isDrawing: false,
+                startPoint: null,
+                previousPoint: null,
+                selectionMask: null,
+                tempSelectionRect: null,
+            })
+            return
+        }
 
         if(event.button == 1) {
             event.preventDefault();
@@ -425,14 +565,18 @@ export default class App extends React.Component {
             <div className='main-wrapper'>
                 <div className='tools-wrapper'>
                     <div className='utility-wrapper'>
-                        <button className='tool' onClick={this.resizeModal}>resize</button>
-                        {/* <button className='tool' onClick={this.zoomOut}>zoom out</button> */}
+                        <button className='tool' onClick={(e) => { this.manageNewModal(true) }}>new</button>
+                        <button className='tool' onClick={(e) => { this.openDialog() }}>open</button>
+                        <button className='tool' onClick={(e) => { this.manageResizeModal(true) }}>resize</button>
+                        <button className='tool' onClick={(e) => { this.manageSaveModal(true) }}>save</button>
                         <button className='tool' onClick={()=>{this.changeTool('rectangle')}}>rectangle</button>
                         <button className='tool' onClick={()=>{this.changeTool('lasso')}}>lasso</button>
                     </div>
                     <div className='style-wrapper'>
                         <button className='tool' onClick={this.invert}>invert</button>
-                        <button className='tool' onClick={this.sort}>sort</button>
+                        <button className='tool' onClick={(e) => { this.manageSortModal(true) }}>sort</button>
+                        <button className='tool' onClick={(e) => { this.copy() }}>copy</button>
+                        <button className='tool' onClick={(e) => { this.paste() }}>paste</button>
                     </div>
                 </div>
                 <div id='canvas-wrapper' className='canvas-wrapper' ref={this.canvasWrapper}>
@@ -444,13 +588,24 @@ export default class App extends React.Component {
                         onMouseLeave={this.handleMouseUp}
                         onMouseMove={this.handleMouseMove}
                         onWheel={this.handleScroll}
+                        width={this.state.width}
+                        height={this.state.height}
                     >
                     </canvas>
+                    <div className='details-wrapper'>
+                        <div className='detail-item'><span className='detail-label'>file </span><span className='detail-value'>{`${testimg}`}</span></div>
+                        <div className='detail-item'><span className='detail-label'>width </span><span className='detail-value'>{`${this.state.width}`}</span></div>
+                        <div className='detail-item'><span className='detail-label'>height </span><span className='detail-value'>{`${this.state.height}`}</span></div>
+                    </div>
                 </div>
+                {this.state.isSaveModalOpen ? 
+                (<SaveModal cancel={this.manageSaveModal} confirm={this.save}/>) : <span/>}
                 {this.state.isResizeModalOpen ? 
-                (<ToolModal title={'Resize'} onConfirm={this.resizeModalConfirm} onCancel={this.resizeModalCancel}>
-                    <input onChange={this.resizeInputUpdate} placeholder='scale' className='resize-modal-input'></input>
-                </ToolModal>) : <span/>}
+                (<ResizeModal cancel={this.manageResizeModal} confirm={this.resize}/>) : <span/>}
+                {this.state.isSortModalOpen ? 
+                (<SortModal cancel={this.manageSortModal} confirm={this.sort} />) : <span/>}
+                {this.state.isNewModalOpen ? 
+                (<NewModal cancel={this.manageNewModal} confirm={this.newCanvas} />) : <span/>}
             </div>
         )
     }

@@ -4,10 +4,12 @@ body {
   height: 100%;
   /* max-width: 38rem; */
   /* padding: 2rem; */
+  touch-action: none;
 }
 
 .canvas {
   border: 2px solid black;
+  touch-action: none;
 }
 
 .lasso-cursor:hover {
@@ -20,6 +22,7 @@ body {
 
 .canvas-wrapper {
   display: inline-block;
+  touch-action: none;
 }
 
 .main-wrapper {
@@ -150,4 +153,29 @@ body {
 .btn-cancel {
   background-color: #6c757d;
   color: white;
+}
+
+.modal-selection {
+  display: block;
+  margin: 4px 0px;
+  padding: 2px 6px;
+}
+
+.modal-tip {
+  color: orange;
+  font-size: 10px;
+}
+
+.details-wrapper {
+  font-family: 'Courier New', Courier, monospace;
+  color: #333;
+  font-size: 14px;
+}
+
+.detail-label {
+
+}
+
+.detail-value {
+
 }

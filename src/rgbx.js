@@ -40,7 +40,7 @@ let matrixToBuffer = (matrix) => {
     return buffer;
 }
 
-let sortPixels = (matrix, mask, direction = 'ascending', renderer) => {
+let sortPixels = (matrix, mask, axis = 'x', criterion = 'brightness', direction = 'ascending', renderer) => {
     if (!mask || !renderer) {
       console.log("A selection is required and renderer must be initialized.");
       return;
@@ -51,9 +51,13 @@ let sortPixels = (matrix, mask, direction = 'ascending', renderer) => {
 
     // The CPU's only job is to kick off the GPU process
     const sortedImageData = renderer.performGpuSort(
-      matrix,
-      mask,
-      direction
+        matrix,
+        mask,
+        {
+            axis,
+            criterion,
+            direction,
+        }
     );
     
     const endTime = performance.now();
@@ -88,29 +92,6 @@ let invert = (matrix, mask) => {
         }
     }
 
-
-    // let startY = 0;
-    // let startX = 0;
-    // let endY = h;
-    // let endX = w;
-
-    // if (selection) {
-    //     startY = Math.max(0, selection.y);
-    //     startX = Math.max(0, selection.x);
-    //     endY = Math.min(h, selection.y + selection.height);
-    //     endX = Math.min(w, selection.x + selection.width);
-    // }
-
-    // // console.log(w, h);
-    // for(let y = startY; y < endY; y++) {
-    //     for(let x = startX; x < endX; x++) {
-    //         let pixel = m[y][x];
-    //         pixel.r = 255 - pixel.r;
-    //         pixel.g = 255 - pixel.g;
-    //         pixel.b = 255 - pixel.b;
-    //         m[y][x] = pixel;
-    //     }
-    // }
     return m;
 }
 
@@ -181,6 +162,94 @@ let createMask = (w, h, fill=false) => {
     return Array(h).fill(null).map(() => Array(w).fill(fill));
 }
 
+function getMaskBounds(maskMatrix) {
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+  let hasPixels = false;
+  
+  for (let row = 0; row < maskMatrix.length; row++) {
+    for (let col = 0; col < maskMatrix[row].length; col++) {
+      if (maskMatrix[row][col]) {
+        hasPixels = true;
+        minX = Math.min(minX, col);
+        minY = Math.min(minY, row);
+        maxX = Math.max(maxX, col);
+        maxY = Math.max(maxY, row);
+      }
+    }
+  }
+  
+  if (!hasPixels) return null;
+  
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX + 1,
+    height: maxY - minY + 1
+  };
+}
 
 
-export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels }
+function extractMaskedRegion(colorMatrix, maskMatrix) {
+  const bounds = getMaskBounds(maskMatrix);
+  
+  if (!bounds) {
+    return { data: [], bounds: null, mask: [] };
+  }
+  
+  const { x, y, width, height } = bounds;
+  const croppedData = [];
+  const croppedMask = [];
+  
+  for (let row = y; row < y + height; row++) {
+    const dataRow = [];
+    const maskRow = [];
+    
+    for (let col = x; col < x + width; col++) {
+      const isMasked = maskMatrix[row][col];
+      maskRow.push(isMasked);
+      dataRow.push(isMasked ? colorMatrix[row][col] : null);
+    }
+    
+    croppedData.push(dataRow);
+    croppedMask.push(maskRow);
+  }
+  
+  return { 
+    data: croppedData, 
+    bounds: bounds,
+    mask: croppedMask
+  };
+}
+
+
+function pasteMaskedRegion(colorMatrix, clipboard, pasteX, pasteY) {
+  if (!clipboard || !clipboard.data.length) {
+    return colorMatrix;
+  }
+  
+  // Create a deep copy to avoid mutating the original
+  const newMatrix = colorMatrix.map(row => [...row]);
+  
+  for (let row = 0; row < clipboard.data.length; row++) {
+    for (let col = 0; col < clipboard.data[row].length; col++) {
+      const targetRow = pasteY + row;
+      const targetCol = pasteX + col;
+      
+      // Only paste if the pixel was masked AND within bounds
+      if (clipboard.mask[row][col] &&
+          targetRow >= 0 && targetRow < newMatrix.length &&
+          targetCol >= 0 && targetCol < newMatrix[0].length) {
+        newMatrix[targetRow][targetCol] = clipboard.data[row][col];
+      }
+    }
+  }
+  
+  return newMatrix;
+}
+
+
+
+
+
+export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels, extractMaskedRegion, pasteMaskedRegion }

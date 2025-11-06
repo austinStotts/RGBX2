@@ -13,22 +13,21 @@ const vertexShaderSource = `
   }
 `;
 
+// In WebGLRenderer.js
+
 const fragmentShaderSource = `
   precision mediump float;
-  // Uniforms are inputs from our JavaScript code
-  uniform sampler2D u_texture;   // The image from the previous pass
-  uniform sampler2D u_mask;      // The user's selection mask
-  uniform float u_passType;    // 0.0 for an Even Pass, 1.0 for an Odd Pass
-  uniform float u_direction;   // 1.0 for ascending, -1.0 for descending
-  uniform vec2 u_resolution;   // The width and height of the image
-  uniform float u_axis;        // 0.0 for X-axis sort, 1.0 for Y-axis sort
-  uniform float u_criterion;   // 0:brightness, 1:red, 2:green, 3:blue, 4:hue
+  uniform sampler2D u_texture;
+  uniform sampler2D u_mask;
+  uniform float u_passType;
+  uniform float u_direction;
+  uniform vec2 u_resolution;
+  uniform float u_axis;
+  uniform float u_criterion;
 
-  // Varying is the data passed from the vertex shader
   varying vec2 v_texCoord;
 
-  // --- Helper Functions in GLSL ---
-  
+  // ... (getHue and getSortValue functions are the same) ...
   // Converts an RGB color to a single Hue value
   float getHue(vec3 c) {
     vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -51,46 +50,49 @@ const fragmentShaderSource = `
 
   void main() {
     vec4 selfColor = texture2D(u_texture, v_texCoord);
+    float isSelected = texture2D(u_mask, v_texCoord).r;
 
-    // If this pixel is not selected in the mask, do nothing and return its original color.
-    if (texture2D(u_mask, v_texCoord).r < 0.5) {
-      gl_FragColor = selfColor;
-      return;
-    }
-
-    // Determine the step vector (either horizontal or vertical) based on the sorting axis
     vec2 step = u_axis == 0.0 ? vec2(1.0 / u_resolution.x, 0.0) : vec2(0.0, 1.0 / u_resolution.y);
-    
-    // Determine the coordinate to check for the odd/even pass
     float coord = u_axis == 0.0 ? v_texCoord.x * u_resolution.x : v_texCoord.y * u_resolution.y;
-
-    // Determine if this pixel is the 'left' (or 'top') pixel in a comparison pair for this pass
     bool isLeftPixel = mod(floor(coord), 2.0) == u_passType;
+    
+    vec4 finalColor; // The color this pixel will become if it's selected
 
     if (isLeftPixel) {
-      // I am a left/top pixel. Compare with my right/bottom neighbor.
-      vec4 neighborColor = texture2D(u_texture, v_texCoord + step);
+      vec2 neighborCoord = v_texCoord + step;
+      // Read neighbor color, but stay in bounds
+      vec4 neighborColor = texture2D(u_texture, clamp(neighborCoord, 0.0, 1.0));
+      
       float selfVal = getSortValue(selfColor, u_criterion);
       float neighborVal = getSortValue(neighborColor, u_criterion);
       
-      // If the values are out of order according to the sort direction, output the neighbor's color (swap).
       if ((selfVal - neighborVal) * u_direction > 0.0) {
-        gl_FragColor = neighborColor;
+        finalColor = neighborColor; // Swap
       } else {
-        gl_FragColor = selfColor;
+        finalColor = selfColor; // No swap
       }
     } else {
-      // I am a right/bottom pixel. Compare with my left/top neighbor.
-      vec4 neighborColor = texture2D(u_texture, v_texCoord - step);
+      vec2 neighborCoord = v_texCoord - step;
+      // Read neighbor color, but stay in bounds
+      vec4 neighborColor = texture2D(u_texture, clamp(neighborCoord, 0.0, 1.0));
+
       float selfVal = getSortValue(selfColor, u_criterion);
       float neighborVal = getSortValue(neighborColor, u_criterion);
 
-      // If the values are out of order, output the neighbor's color (swap).
       if ((neighborVal - selfVal) * u_direction > 0.0) {
-        gl_FragColor = neighborColor;
+        finalColor = neighborColor; // Swap
       } else {
-        gl_FragColor = selfColor;
+        finalColor = selfColor; // No swap
       }
+    }
+    
+    // THE FINAL DECISION:
+    // If this pixel is selected, output the calculated sorted color.
+    // If it's NOT selected, ignore all the sorting logic and just output its own original color.
+    if (isSelected > 0.5) {
+      gl_FragColor = finalColor;
+    } else {
+      gl_FragColor = selfColor;
     }
   }
 `;
