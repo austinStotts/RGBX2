@@ -20,6 +20,10 @@ body {
   cursor: crosshair;
 }
 
+.wand-cursor:hover {
+  cursor: pointer;
+}
+
 .canvas-wrapper {
   display: inline-block;
   touch-action: none;

@@ -267,6 +267,124 @@ let filter = (m, f) => {
   return matrix;
 }
 
+function createMagicWandMask(colorMatrix, startX, startY, tolerance = 32, contiguous = true) {
+  const height = colorMatrix.length;
+  const width = colorMatrix[0].length;
+  
+  // Initialize mask with all false
+  const mask = Array(height).fill(null).map(() => Array(width).fill(false));
+  
+  // Get the target color at clicked position
+  const targetColor = colorMatrix[startY][startX];
+  
+  if (contiguous) {
+    // Flood fill - only select connected pixels
+    floodFillMask(colorMatrix, mask, startX, startY, targetColor, tolerance);
+  } else {
+    // Select all similar pixels regardless of connectivity
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (isColorSimilar(colorMatrix[y][x], targetColor, tolerance)) {
+          mask[y][x] = true;
+        }
+      }
+    }
+  }
+  
+  return mask;
+}
+
+function colorDistance(color1, color2) {
+  const rDiff = color1.r - color2.r;
+  const gDiff = color1.g - color2.g;
+  const bDiff = color1.b - color2.b;
+  
+  // Euclidean distance
+  return Math.sqrt(rDiff * rDiff + gDiff * gDiff + bDiff * bDiff);
+}
+
+function isColorSimilar(color1, color2, tolerance) {
+  return deltaE(color1, color2) <= tolerance;
+}
+
+function floodFillMask(colorMatrix, mask, startX, startY, targetColor, tolerance) {
+  const height = colorMatrix.length;
+  const width = colorMatrix[0].length;
+  
+  // Stack for pixels to check (alternative to recursion)
+  const stack = [{x: startX, y: startY}];
+  
+  while (stack.length > 0) {
+    const {x, y} = stack.pop();
+    
+    // Skip if out of bounds
+    if (x < 0 || x >= width || y < 0 || y >= height) continue;
+    
+    // Skip if already marked
+    if (mask[y][x]) continue;
+    
+    // Skip if color is not similar
+    if (!isColorSimilar(colorMatrix[y][x], targetColor, tolerance)) continue;
+    
+    // Mark this pixel
+    mask[y][x] = true;
+    
+    // Add neighbors to stack (4-way connectivity)
+    stack.push({x: x + 1, y: y});
+    stack.push({x: x - 1, y: y});
+    stack.push({x: x, y: y + 1});
+    stack.push({x: x, y: y - 1});
+    
+    // Optional: 8-way connectivity (includes diagonals)
+    // stack.push({x: x + 1, y: y + 1});
+    // stack.push({x: x + 1, y: y - 1});
+    // stack.push({x: x - 1, y: y + 1});
+    // stack.push({x: x - 1, y: y - 1});
+  }
+}
+
+function rgbToLab(r, g, b) {
+  // Normalize RGB to 0-1
+  let rNorm = r / 255;
+  let gNorm = g / 255;
+  let bNorm = b / 255;
+  
+  // Apply gamma correction
+  rNorm = rNorm > 0.04045 ? Math.pow((rNorm + 0.055) / 1.055, 2.4) : rNorm / 12.92;
+  gNorm = gNorm > 0.04045 ? Math.pow((gNorm + 0.055) / 1.055, 2.4) : gNorm / 12.92;
+  bNorm = bNorm > 0.04045 ? Math.pow((bNorm + 0.055) / 1.055, 2.4) : bNorm / 12.92;
+  
+  // Convert to XYZ
+  const x = rNorm * 0.4124 + gNorm * 0.3576 + bNorm * 0.1805;
+  const y = rNorm * 0.2126 + gNorm * 0.7152 + bNorm * 0.0722;
+  const z = rNorm * 0.0193 + gNorm * 0.1192 + bNorm * 0.9505;
+  
+  // Convert XYZ to LAB
+  const xn = x / 0.95047;
+  const yn = y / 1.00000;
+  const zn = z / 1.08883;
+  
+  const fx = xn > 0.008856 ? Math.pow(xn, 1/3) : (7.787 * xn + 16/116);
+  const fy = yn > 0.008856 ? Math.pow(yn, 1/3) : (7.787 * yn + 16/116);
+  const fz = zn > 0.008856 ? Math.pow(zn, 1/3) : (7.787 * zn + 16/116);
+  
+  const L = 116 * fy - 16;
+  const a = 500 * (fx - fy);
+  const b_lab = 200 * (fy - fz);
+  
+  return { L, a, b: b_lab };
+}
+
+function deltaE(color1, color2) {
+  const lab1 = rgbToLab(color1.r, color1.g, color1.b);
+  const lab2 = rgbToLab(color2.r, color2.g, color2.b);
+  
+  const dL = lab1.L - lab2.L;
+  const da = lab1.a - lab2.a;
+  const db = lab1.b - lab2.b;
+  
+  return Math.sqrt(dL * dL + da * da + db * db);
+}
 
 
-export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels, extractMaskedRegion, pasteMaskedRegion, filter }
+export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels, extractMaskedRegion, pasteMaskedRegion, filter, createMagicWandMask }

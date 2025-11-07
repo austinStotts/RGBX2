@@ -43,7 +43,8 @@ export default class App extends React.Component {
             },
             clipboard: null,
             isPasting: false,
-            cursor: { x: 0, y: 0 }
+            cursor: { x: 0, y: 0 },
+            tolerance: 32,
         }
 
         this.invert = this.invert.bind(this);
@@ -358,6 +359,7 @@ export default class App extends React.Component {
         
         const ctx = canvas.getContext('2d');
         const maskMatrix = this.state.selectionMask;
+        let { scale, offset } = this.state;
         
         if (!maskMatrix || maskMatrix.length === 0) return;
         
@@ -366,6 +368,8 @@ export default class App extends React.Component {
         
         // Draw semi-transparent fill
         ctx.save();
+        ctx.translate(offset.x, offset.y);
+        ctx.scale(scale, scale);
         ctx.fillStyle = 'rgba(0, 120, 255, 0.2)';
         
         for (let y = 0; y < height; y++) {
@@ -533,6 +537,18 @@ export default class App extends React.Component {
                 this.setState({ selectionMask: newMask })
             }
         }
+
+        if (this.state.currentTool == 'magicwand') {
+            const newMask = rgbx.createMagicWandMask(
+                this.state.matrix,
+                pos.x,
+                pos.y,
+                this.state.tolerance,
+                true // contiguous
+            );
+            
+            this.setState({ selectionMask: newMask });
+        }
     }
 
     handleMouseUp (event) {
@@ -629,6 +645,8 @@ export default class App extends React.Component {
                     this.canvas.current.classList.add('rectangle-cursor');
                 case 'lasso':
                     this.canvas.current.classList.add('lasso-cursor');
+                case 'magicwand':
+                    this.canvas.current.classList.add('wand-cursor');
             }   
 
         });
@@ -646,6 +664,7 @@ export default class App extends React.Component {
                         <button className='tool' onClick={(e) => { this.manageSaveModal(true) }}>save</button>
                         <button className='tool' onClick={()=>{this.changeTool('rectangle')}}>rectangle</button>
                         <button className='tool' onClick={()=>{this.changeTool('lasso')}}>lasso</button>
+                        <button className='tool' onClick={()=>{this.changeTool('magicwand')}}>magic wand</button>
                     </div>
                     <div className='style-wrapper'>
                         <button className='tool' onClick={this.invert}>invert</button>
@@ -685,3 +704,23 @@ export default class App extends React.Component {
         )
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
