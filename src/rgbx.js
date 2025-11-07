@@ -80,8 +80,8 @@ let invert = (matrix, mask) => {
     let h = m.length;
     let w = m[0].length;
 
-    for(let y = 0; y < m.length; y++) {
-        for(let x = 0; x < m[y].length; x++) {
+    for(let y = 0; y < h; y++) {
+        for(let x = 0; x < w; x++) {
             if(mask[y] && mask[y][x]) {
                 let pixel = m[y][x];
                 pixel.r = 255 - pixel.r;
@@ -96,7 +96,11 @@ let invert = (matrix, mask) => {
 }
 
 let cloneMatrix = (matrix) => {
-    return matrix.map(row => [...row]);
+    return matrix.map((row) => {
+      return row.map(pixel => {
+        return {r: pixel.r, g: pixel.g, b: pixel.b, a: pixel.a}
+      })
+    });
 }
 
 let lerp = (a, b, t) => {
@@ -229,7 +233,7 @@ function pasteMaskedRegion(colorMatrix, clipboard, pasteX, pasteY) {
   }
   
   // Create a deep copy to avoid mutating the original
-  const newMatrix = colorMatrix.map(row => [...row]);
+  const newMatrix = cloneMatrix(colorMatrix);
   
   for (let row = 0; row < clipboard.data.length; row++) {
     for (let col = 0; col < clipboard.data[row].length; col++) {
@@ -248,8 +252,21 @@ function pasteMaskedRegion(colorMatrix, clipboard, pasteX, pasteY) {
   return newMatrix;
 }
 
+let filter = (m, f) => {
+  let matrix = cloneMatrix(m);
+  if(matrix.length > 0) {
+    for(let y = 0; y < matrix.length; y++) {
+      for(let x = 0; x < matrix[0].length; x++) {
+        matrix[y][x].r = f(matrix[y][x].r, 'r');
+        matrix[y][x].g = f(matrix[y][x].g, 'g');
+        matrix[y][x].b = f(matrix[y][x].b, 'b');
+        matrix[y][x].a = f(matrix[y][x].a, 'a');
+      }
+    }
+  }
+  return matrix;
+}
 
 
 
-
-export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels, extractMaskedRegion, pasteMaskedRegion }
+export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels, extractMaskedRegion, pasteMaskedRegion, filter }

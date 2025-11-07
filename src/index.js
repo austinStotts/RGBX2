@@ -9,6 +9,7 @@ import SortModal from './components/SortModal';
 import ResizeModal from './components/ResizeModal';
 import NewModal from './components/newModal';
 
+
 export default class App extends React.Component {
     constructor (props) {
         super(props);
@@ -42,6 +43,7 @@ export default class App extends React.Component {
             },
             clipboard: null,
             isPasting: false,
+            cursor: { x: 0, y: 0 }
         }
 
         this.invert = this.invert.bind(this);
@@ -68,9 +70,15 @@ export default class App extends React.Component {
         this.openDialog = this.openDialog.bind(this);
         this.copy = this.copy.bind(this);
         this.paste = this.paste.bind(this);
+        this.drawMaskOverlay = this.drawMaskOverlay.bind(this);
     }
 
     componentDidMount () {
+
+        setInterval(() => {
+            this.drawCanvas()
+        }, 33)
+        
 
         let webGLCanvas = document.createElement('canvas');
         this.renderer = new WebGLSortRenderer(webGLCanvas);
@@ -97,7 +105,7 @@ export default class App extends React.Component {
     }
 
     componentDidUpdate () {
-        this.drawCanvas();
+        // this.drawCanvas();
     }
 
     componentWillUnmount () {
@@ -123,8 +131,6 @@ export default class App extends React.Component {
             let data = this.canvas.current.toDataURL('image/jpeg');
             window.electron.saveCanvas(data, 'jpg');
         }
-        
-        // console.log(window)
     }
 
     open (data) {
@@ -242,6 +248,7 @@ export default class App extends React.Component {
 
     copy () {
         if(!this.state.selectionMask) {
+            this.setState({ clipboard: null })
             return
         }
         const clipboard = rgbx.extractMaskedRegion(this.state.matrix, this.state.selectionMask);
@@ -260,8 +267,9 @@ export default class App extends React.Component {
         }
     }
 
-    pasteMouseDown () {
-
+    pasteMouseDown (x, y) {
+        let newMatrix = rgbx.pasteMaskedRegion(this.state.matrix, this.state.clipboard, x, y);
+        this.setState({ matrix: newMatrix })
     }
 
 
@@ -304,12 +312,19 @@ export default class App extends React.Component {
             this.state.width * scale,
             this.state.height * scale,
         );
-
-        // this.canvasWrapper.current.style.width = this.state.width
-
-        this.drawSelectionOverlays(mainCTX);
+        
+        if(this.state.isPasting && this.state.clipboard) {
+            let { x, y } = this.state.cursor;
+            let copyMatrix = this.state.clipboard.data;
+            let buffer = rgbx.matrixToBuffer(copyMatrix);
+            let previewData = new ImageData(buffer, copyMatrix[0].length, copyMatrix.length);
+            mainCTX.putImageData(previewData, x, y);
+        }
+        this.drawMaskOverlay()
     }
 
+    // drawSelectionOverlays is not currently being used
+    // it was replaced by drawMaskOverlays
     drawSelectionOverlays (ctx) {
         let { scale, offset, selectionMask, isDrawing, currentTool, tempSelectionRect } = this.state;
         if(!selectionMask && !tempSelectionRect) return;
@@ -334,7 +349,67 @@ export default class App extends React.Component {
             }
         }
 
-        ctx.restore()
+        ctx.restore();
+    }
+
+    drawMaskOverlay () {
+        const canvas = this.canvas.current;
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const maskMatrix = this.state.selectionMask;
+        
+        if (!maskMatrix || maskMatrix.length === 0) return;
+        
+        const height = maskMatrix.length;
+        const width = maskMatrix[0].length;
+        
+        // Draw semi-transparent fill
+        ctx.save();
+        ctx.fillStyle = 'rgba(0, 120, 255, 0.2)';
+        
+        for (let y = 0; y < height; y++) {
+            let runStart = null;
+            for (let x = 0; x < width; x++) {
+            if (maskMatrix[y][x]) {
+                if (runStart === null) runStart = x;
+            } else {
+                if (runStart !== null) {
+                ctx.fillRect(runStart, y, x - runStart, 1);
+                runStart = null;
+                }
+            }
+            }
+            if (runStart !== null) {
+            ctx.fillRect(runStart, y, width - runStart, 1);
+            }
+        }
+        
+        // Draw border around mask edges
+        ctx.strokeStyle = 'rgba(0, 120, 255, 0.8)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]); // Dashed line
+        ctx.lineDashOffset = -performance.now() / 50; // Animate
+        
+        // Find and draw edges
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+            if (maskMatrix[y][x]) {
+                // Check if this is an edge pixel
+                const isEdge = 
+                (y === 0 || !maskMatrix[y-1][x]) || // Top edge
+                (y === height-1 || !maskMatrix[y+1][x]) || // Bottom edge
+                (x === 0 || !maskMatrix[y][x-1]) || // Left edge
+                (x === width-1 || !maskMatrix[y][x+1]); // Right edge
+                
+                if (isEdge) {
+                    ctx.strokeRect(x + 0.5, y + 0.5, 1, 1);
+                }
+            }
+            }
+        }
+        
+        ctx.restore();
     }
 
     drawLine (start, end, callback) {
@@ -416,7 +491,7 @@ export default class App extends React.Component {
     }
 
     handleMouseDown (event) {
-        
+
         if(event.button == 2) {
             event.preventDefault();
             this.setState({
@@ -439,9 +514,9 @@ export default class App extends React.Component {
         }
 
         let pos = this.getMousePosition(event);
-
-        // let { offsetX, offsetY } = event.nativeEvent;
-        // let startPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) };
+        if(this.state.isPasting) {
+            this.pasteMouseDown(pos.x, pos.y);
+        }
 
         this.setState({ 
             isDrawing: true,
@@ -485,6 +560,9 @@ export default class App extends React.Component {
     }
 
     handleMouseMove (event) {
+        let pos = this.getMousePosition(event);
+        this.setState({ cursor: pos })
+
         if(this.state.isPanning) {
             let { previousPoint, offset } = this.state;
             let { offsetX, offsetY } = event.nativeEvent;
@@ -498,13 +576,10 @@ export default class App extends React.Component {
             return;
         }
 
+
         if(!this.state.isDrawing) return;
-        let pos = this.getMousePosition(event);
-
+        
         let { currentTool, startPoint, previousPoint } = this.state;
-        // let { offsetX, offsetY } = event.nativeEvent;
-        // let currentPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) }
-
 
         if(currentTool == 'lasso') {
             if(previousPoint) {
@@ -609,5 +684,4 @@ export default class App extends React.Component {
             </div>
         )
     }
-
 }
