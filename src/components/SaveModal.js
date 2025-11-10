@@ -2,7 +2,7 @@ import * as React from 'react';
 import ToolModal from './ToolModal';
 
 export default function SaveModal (props) {
-    let { cancel, confirm } = props;
+    let { cancel, confirm, initialPosition, onPositionChange, isActive, zIndex, onActivate, isTopModal, onCloseAll, modalType } = props;
 
     let currentSelection = 'png';
 
@@ -17,7 +17,19 @@ export default function SaveModal (props) {
     }
 
     return (
-        <ToolModal title={'Save'} onConfirm={submit} onCancel={(e) => { cancel(false) }}>
+        <ToolModal
+            title={'Save'}
+            onConfirm={submit}
+            onCancel={(e) => { cancel(false) }}
+            initialPosition={initialPosition}
+            onPositionChange={onPositionChange}
+            isActive={isActive}
+            zIndex={zIndex}
+            onActivate={onActivate}
+            isTopModal={isTopModal}
+            onCloseAll={onCloseAll}
+            modalType={modalType}
+        >
             <select onChange={handleChange} className='modal-selection'>
                 <option value={'png'}>png</option>
                 <option value={'jpg'}>jpg</option>

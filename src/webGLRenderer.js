@@ -24,10 +24,11 @@ const fragmentShaderSource = `
   uniform vec2 u_resolution;
   uniform float u_axis;
   uniform float u_criterion;
+  uniform float u_edgeThreshold;
+  uniform float u_smoothing;
 
   varying vec2 v_texCoord;
 
-  // ... (getHue and getSortValue functions are the same) ...
   // Converts an RGB color to a single Hue value
   float getHue(vec3 c) {
     vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -48,6 +49,22 @@ const fragmentShaderSource = `
     return (color.r + color.g + color.b) / 3.0;
   }
 
+  // Calculate color distance in RGB space
+  float colorDistance(vec4 a, vec4 b) {
+    vec3 diff = a.rgb - b.rgb;
+    return length(diff);
+  }
+
+  // Detect if there's a sharp edge between two colors
+  bool isEdge(vec4 color1, vec4 color2, float threshold) {
+    return colorDistance(color1, color2) > threshold;
+  }
+
+  // Blend two colors based on smoothing factor
+  vec4 smoothBlend(vec4 original, vec4 swapped, float factor) {
+    return mix(swapped, original, factor * 0.3);
+  }
+
   void main() {
     vec4 selfColor = texture2D(u_texture, v_texCoord);
     float isSelected = texture2D(u_mask, v_texCoord).r;
@@ -55,18 +72,24 @@ const fragmentShaderSource = `
     vec2 step = u_axis == 0.0 ? vec2(1.0 / u_resolution.x, 0.0) : vec2(0.0, 1.0 / u_resolution.y);
     float coord = u_axis == 0.0 ? v_texCoord.x * u_resolution.x : v_texCoord.y * u_resolution.y;
     bool isLeftPixel = mod(floor(coord), 2.0) == u_passType;
-    
+
     vec4 finalColor; // The color this pixel will become if it's selected
+    bool shouldSwap = false;
 
     if (isLeftPixel) {
       vec2 neighborCoord = v_texCoord + step;
       // Read neighbor color, but stay in bounds
       vec4 neighborColor = texture2D(u_texture, clamp(neighborCoord, 0.0, 1.0));
-      
+
+      // Check if there's a sharp edge between pixels
+      bool hasEdge = isEdge(selfColor, neighborColor, u_edgeThreshold);
+
       float selfVal = getSortValue(selfColor, u_criterion);
       float neighborVal = getSortValue(neighborColor, u_criterion);
-      
-      if ((selfVal - neighborVal) * u_direction > 0.0) {
+
+      // Only swap if pixels are similar enough (no sharp edge) or edge detection is disabled
+      if (!hasEdge && (selfVal - neighborVal) * u_direction > 0.0) {
+        shouldSwap = true;
         finalColor = neighborColor; // Swap
       } else {
         finalColor = selfColor; // No swap
@@ -76,16 +99,26 @@ const fragmentShaderSource = `
       // Read neighbor color, but stay in bounds
       vec4 neighborColor = texture2D(u_texture, clamp(neighborCoord, 0.0, 1.0));
 
+      // Check if there's a sharp edge between pixels
+      bool hasEdge = isEdge(selfColor, neighborColor, u_edgeThreshold);
+
       float selfVal = getSortValue(selfColor, u_criterion);
       float neighborVal = getSortValue(neighborColor, u_criterion);
 
-      if ((neighborVal - selfVal) * u_direction > 0.0) {
+      // Only swap if pixels are similar enough (no sharp edge) or edge detection is disabled
+      if (!hasEdge && (neighborVal - selfVal) * u_direction > 0.0) {
+        shouldSwap = true;
         finalColor = neighborColor; // Swap
       } else {
         finalColor = selfColor; // No swap
       }
     }
-    
+
+    // Apply smoothing to reduce banding artifacts when swapping
+    if (shouldSwap && u_smoothing > 0.0) {
+      finalColor = smoothBlend(selfColor, finalColor, u_smoothing);
+    }
+
     // THE FINAL DECISION:
     // If this pixel is selected, output the calculated sorted color.
     // If it's NOT selected, ignore all the sorting logic and just output its own original color.
@@ -128,6 +161,8 @@ export class WebGLSortRenderer {
     this.directionLocation = this.gl.getUniformLocation(this.program, "u_direction");
     this.axisLocation = this.gl.getUniformLocation(this.program, "u_axis");
     this.criterionLocation = this.gl.getUniformLocation(this.program, "u_criterion");
+    this.edgeThresholdLocation = this.gl.getUniformLocation(this.program, "u_edgeThreshold");
+    this.smoothingLocation = this.gl.getUniformLocation(this.program, "u_smoothing");
 
     const positionBuffer = this.gl.createBuffer();
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, positionBuffer);
@@ -139,7 +174,9 @@ export class WebGLSortRenderer {
     const {
       axis = 'y',
       criterion = 'brightness',
-      direction = 'decending'
+      direction = 'decending',
+      edgeThreshold = 0.5,
+      smoothing = 0.2
     } = options;
 
     const gl = this.gl;
@@ -153,7 +190,7 @@ export class WebGLSortRenderer {
 
     const imageTexture = this.createTextureFromMatrix(pixelMatrix);
     const maskTexture = this.createTextureFromMask(mask);
-    
+
     const fbo1 = this.createFramebuffer(width, height);
     const fbo2 = this.createFramebuffer(width, height);
 
@@ -165,6 +202,8 @@ export class WebGLSortRenderer {
     gl.uniform1f(this.directionLocation, direction === 'ascending' ? 1.0 : -1.0);
     gl.uniform1f(this.axisLocation, axis === 'x' ? 0.0 : 1.0);
     gl.uniform1f(this.criterionLocation, CRITERION_MAP[criterion] || 0.0);
+    gl.uniform1f(this.edgeThresholdLocation, edgeThreshold);
+    gl.uniform1f(this.smoothingLocation, smoothing);
     
     gl.uniform1i(this.textureLocation, 0); // Tell shader texture unit 0 is for the image
     gl.uniform1i(this.maskLocation, 1);     // Tell shader texture unit 1 is for the mask

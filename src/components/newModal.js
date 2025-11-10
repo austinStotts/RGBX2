@@ -2,7 +2,7 @@ import * as React from 'react';
 import ToolModal from './ToolModal';
 
 export default function NewModal (props) {
-    let { cancel, confirm } = props;
+    let { cancel, confirm, initialPosition, onPositionChange, isActive, zIndex, onActivate, isTopModal, onCloseAll, modalType } = props;
 
     let currentWidth = 256;
     let currentHeight = 256;
@@ -27,7 +27,19 @@ export default function NewModal (props) {
     }
 
     return (
-        <ToolModal title={'New'} onConfirm={submit} onCancel={(e) => { cancel(false) }}>
+        <ToolModal
+            title={'New'}
+            onConfirm={submit}
+            onCancel={(e) => { cancel(false) }}
+            initialPosition={initialPosition}
+            onPositionChange={onPositionChange}
+            isActive={isActive}
+            zIndex={zIndex}
+            onActivate={onActivate}
+            isTopModal={isTopModal}
+            onCloseAll={onCloseAll}
+            modalType={modalType}
+        >
             <textarea onChange={(event) => {handleChange(event, 'width')}} placeholder='width in pixels'></textarea>
             <textarea onChange={(event) => {handleChange(event, 'height')}} placeholder='width in pixels'></textarea>
         </ToolModal>

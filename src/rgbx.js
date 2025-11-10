@@ -166,6 +166,10 @@ let createMask = (w, h, fill=false) => {
     return Array(h).fill(null).map(() => Array(w).fill(fill));
 }
 
+let cloneMask = (mask) => {
+    return mask.map((row) => [...row]);
+}
+
 function getMaskBounds(maskMatrix) {
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
@@ -270,10 +274,15 @@ let filter = (m, f) => {
 function createMagicWandMask(colorMatrix, startX, startY, tolerance = 32, contiguous = true) {
   const height = colorMatrix.length;
   const width = colorMatrix[0].length;
-  
+
   // Initialize mask with all false
   const mask = Array(height).fill(null).map(() => Array(width).fill(false));
-  
+
+  // Check if start position is within bounds
+  if (startX < 0 || startX >= width || startY < 0 || startY >= height) {
+    return mask; // Return empty mask if out of bounds
+  }
+
   // Get the target color at clicked position
   const targetColor = colorMatrix[startY][startX];
   
@@ -387,4 +396,4 @@ function deltaE(color1, color2) {
 }
 
 
-export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, sortPixels, extractMaskedRegion, pasteMaskedRegion, filter, createMagicWandMask }
+export default { bufferToMatrix, matrixToBuffer, invert, cloneMatrix, resize, createMask, cloneMask, sortPixels, extractMaskedRegion, pasteMaskedRegion, filter, createMagicWandMask }

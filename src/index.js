@@ -8,6 +8,9 @@ import SaveModal from './components/SaveModal';
 import SortModal from './components/SortModal';
 import ResizeModal from './components/ResizeModal';
 import NewModal from './components/newModal';
+import MagicWandModal from './components/MagicWandModal';
+import BrushModal from './components/BrushModal';
+import PasteModal from './components/PasteModal';
 
 
 export default class App extends React.Component {
@@ -36,15 +39,46 @@ export default class App extends React.Component {
             isSortModalOpen: false,
             isSaveModalOpen: false,
             isNewModalOpen: false,
+            isMagicWandModalOpen: false,
+            isBrushModalOpen: false,
+            isPasteModalOpen: false,
             sortOptions: {
                 axis: 'x',
                 criterion: 'brightness',
                 direction: 'ascending',
             },
             clipboard: null,
+            clipboardCanvas: null, // Cache the rendered clipboard canvas
             isPasting: false,
             cursor: { x: 0, y: 0 },
             tolerance: 32,
+            contiguous: true,
+            brushSettings: {
+                type: 'pencil',
+                size: 1,
+                color: '#000000'
+            },
+            history: [],
+            historyIndex: -1,
+            modalPositions: {
+                sort: null,
+                resize: null,
+                save: null,
+                new: null,
+                magicWand: null,
+                brush: null,
+                paste: null,
+            },
+            modalZIndices: {
+                sort: 101,
+                resize: 101,
+                save: 101,
+                new: 101,
+                magicWand: 101,
+                brush: 101,
+                paste: 101,
+            },
+            highestZIndex: 101,
         }
 
         this.invert = this.invert.bind(this);
@@ -72,6 +106,17 @@ export default class App extends React.Component {
         this.copy = this.copy.bind(this);
         this.paste = this.paste.bind(this);
         this.drawMaskOverlay = this.drawMaskOverlay.bind(this);
+        this.saveToHistory = this.saveToHistory.bind(this);
+        this.undo = this.undo.bind(this);
+        this.redo = this.redo.bind(this);
+        this.manageMagicWandModal = this.manageMagicWandModal.bind(this);
+        this.updateMagicWandSettings = this.updateMagicWandSettings.bind(this);
+        this.manageBrushModal = this.manageBrushModal.bind(this);
+        this.updateBrushSettings = this.updateBrushSettings.bind(this);
+        this.bringModalToFront = this.bringModalToFront.bind(this);
+        this.closeAllModals = this.closeAllModals.bind(this);
+        this.managePasteModal = this.managePasteModal.bind(this);
+        this.applyPasteTransformations = this.applyPasteTransformations.bind(this);
     }
 
     componentDidMount () {
@@ -79,7 +124,10 @@ export default class App extends React.Component {
         setInterval(() => {
             this.drawCanvas()
         }, 33)
-        
+
+        // Set canvas to fixed size based on container
+        this.resizeCanvas();
+        window.addEventListener('resize', this.resizeCanvas.bind(this));
 
         let webGLCanvas = document.createElement('canvas');
         this.renderer = new WebGLSortRenderer(webGLCanvas);
@@ -90,19 +138,62 @@ export default class App extends React.Component {
         img.src = testimg;
         img.onload = () => {
 
-            this.canvas.current.width = img.width;
-            this.canvas.current.height = img.height;
-            
-            let ctx = this.canvas.current.getContext('2d');
+            let hiddenCanvas = document.createElement('canvas');
+            let ctx = hiddenCanvas.getContext('2d');
+            hiddenCanvas.width = img.width;
+            hiddenCanvas.height = img.height;
             ctx.drawImage(img, 0, 0);
 
-            let data = ctx.getImageData(0, 0, this.canvas.current.width, this.canvas.current.height);
+            let data = ctx.getImageData(0, 0, img.width, img.height);
             let buffer = data.data;
-            let matrix = rgbx.bufferToMatrix(buffer, this.canvas.current.width, this.canvas.current.height);
-            this.setState({ matrix, width: img.width, height: img.height });
+            let matrix = rgbx.bufferToMatrix(buffer, img.width, img.height);
+
+            // Initialize history with the first loaded image
+            this.setState({
+                matrix,
+                width: img.width,
+                height: img.height,
+                history: [rgbx.cloneMatrix(matrix)],
+                historyIndex: 0
+            }, () => {
+                // Auto-fit image to canvas after loading
+                this.fitImageToCanvas();
+            });
 
             // this.setState({ data, canvas, ctx });
         }
+    }
+
+    resizeCanvas () {
+        if (!this.canvasWrapper.current || !this.canvas.current) return;
+
+        const wrapper = this.canvasWrapper.current;
+        const canvas = this.canvas.current;
+
+        // Set canvas to fill the wrapper
+        canvas.width = wrapper.clientWidth;
+        canvas.height = wrapper.clientHeight;
+    }
+
+    fitImageToCanvas () {
+        const { width, height } = this.state;
+        const canvas = this.canvas.current;
+        if (!canvas || !width || !height) return;
+
+        // Calculate scale to fit image in canvas with some padding
+        const padding = 40;
+        const scaleX = (canvas.width - padding) / width;
+        const scaleY = (canvas.height - padding) / height;
+        const scale = Math.min(scaleX, scaleY, 1); // Don't scale up beyond 100%
+
+        // Center the image
+        const offsetX = (canvas.width - width * scale) / 2;
+        const offsetY = (canvas.height - height * scale) / 2;
+
+        this.setState({
+            scale,
+            offset: { x: offsetX, y: offsetY }
+        });
     }
 
     componentDidUpdate () {
@@ -115,6 +206,7 @@ export default class App extends React.Component {
 
     manageSaveModal (newState) {
         if(newState) {
+            this.bringModalToFront('save');
             this.setState({ isSaveModalOpen: true });
         } else {
             this.setState({ isSaveModalOpen: false });
@@ -149,7 +241,18 @@ export default class App extends React.Component {
                 let hiddenData = hiddenCTX.getImageData(0, 0, img.width, img.height);
                 let buffer = hiddenData.data;
                 let matrix = rgbx.bufferToMatrix(buffer, img.width, img.height);
-                this.setState({ matrix, width: img.width, height: img.height });
+
+                // Reset history when opening a new file
+                this.setState({
+                    matrix,
+                    width: img.width,
+                    height: img.height,
+                    history: [rgbx.cloneMatrix(matrix)],
+                    historyIndex: 0
+                }, () => {
+                    // Auto-fit the newly opened image
+                    this.fitImageToCanvas();
+                });
             }
 
             img.src = `data:${data.mimeType};base64,${data.data}`;
@@ -171,21 +274,11 @@ export default class App extends React.Component {
     }
 
     resetView () {
-        let mainCanvas = this.canvas.current;
-        if(!mainCanvas) return;
-
-        let { width, height } = this.state;
-
-        let centeredOffsetX = (mainCanvas.width - width);
-        let centeredOffsetY = (mainCanvas.height - height);
-
-        this.setState({
-            scale: 1,
-            offset: { x: centeredOffsetX, y: centeredOffsetY }
-        })
+        this.fitImageToCanvas();
     }
 
     invert () {
+        this.saveToHistory();
         if(!this.state.selectionMask) {
             let newMatrix = rgbx.invert(this.state.matrix, this.state.matrix);
             this.setState({ matrix: newMatrix });
@@ -197,6 +290,7 @@ export default class App extends React.Component {
 
     manageSortModal (newState) {
         if(newState) {
+            this.bringModalToFront('sort');
             this.setState({ isSortModalOpen: true });
         } else {
             this.setState({ isSortModalOpen: false });
@@ -204,6 +298,7 @@ export default class App extends React.Component {
     }
 
     sort (options = { axis: 'x', criterion: 'brightness', direction: 'ascending' }) {
+        this.saveToHistory();
         let { axis, criterion, direction } = options;
         if(!this.state.selectionMask) {
             let newMatrix = rgbx.sortPixels(this.state.matrix, this.state.matrix, axis, criterion, direction, this.renderer);
@@ -216,6 +311,7 @@ export default class App extends React.Component {
 
     manageResizeModal (newState) {
         if(newState) {
+            this.bringModalToFront('resize');
             this.setState({ isResizeModalOpen: true });
         } else {
             this.setState({ isResizeModalOpen: false });
@@ -223,12 +319,14 @@ export default class App extends React.Component {
     }
 
     resize (scale) {
+        this.saveToHistory();
         let newMatrix = rgbx.resize(this.state.matrix, Number(scale))
         this.setState({ matrix: newMatrix, width: newMatrix[0].length, height: newMatrix.length });
     }
 
     manageNewModal (newState) {
         if(newState) {
+            this.bringModalToFront('new');
             this.setState({ isNewModalOpen: true });
         } else {
             this.setState({ isNewModalOpen: false });
@@ -240,40 +338,327 @@ export default class App extends React.Component {
         let h = options.height;
         let fill = {r: 30, g: 30, b: 255, a: 255}
         let newMatrix = Array(h).fill(null).map(() => Array(w).fill(fill));
+
+        // Reset history when creating a new canvas
         this.setState({
             matrix: newMatrix,
             width: w,
             height: h,
+            history: [rgbx.cloneMatrix(newMatrix)],
+            historyIndex: 0
+        }, () => {
+            // Auto-fit the new canvas
+            this.fitImageToCanvas();
         })
+    }
+
+    manageMagicWandModal (newState) {
+        if(newState) {
+            this.bringModalToFront('magicWand');
+            this.setState({ isMagicWandModalOpen: true });
+        } else {
+            this.setState({ isMagicWandModalOpen: false });
+        }
+    }
+
+    updateMagicWandSettings (settings) {
+        this.setState({
+            tolerance: settings.tolerance,
+            contiguous: settings.contiguous
+        });
+    }
+
+    saveModalPosition (modalName, position) {
+        this.setState(prevState => ({
+            modalPositions: {
+                ...prevState.modalPositions,
+                [modalName]: position
+            }
+        }));
+    }
+
+    bringModalToFront (modalName) {
+        this.setState(prevState => {
+            const newZIndex = prevState.highestZIndex + 1;
+            return {
+                modalZIndices: {
+                    ...prevState.modalZIndices,
+                    [modalName]: newZIndex
+                },
+                highestZIndex: newZIndex
+            };
+        });
+    }
+
+    closeAllModals () {
+        // Close all modals and reset to neutral state
+        this.setState({
+            isSaveModalOpen: false,
+            isResizeModalOpen: false,
+            isSortModalOpen: false,
+            isNewModalOpen: false,
+            isMagicWandModalOpen: false,
+            isBrushModalOpen: false,
+            isPasteModalOpen: false,
+            currentTool: 'lasso', // Reset to default tool
+        });
+    }
+
+    getTopModalName () {
+        // Find which modal has the highest z-index
+        const { modalZIndices, isSaveModalOpen, isResizeModalOpen, isSortModalOpen,
+                isNewModalOpen, isMagicWandModalOpen, isBrushModalOpen, isPasteModalOpen } = this.state;
+
+        let topModal = null;
+        let highestZ = -1;
+
+        const openModals = {
+            save: isSaveModalOpen,
+            resize: isResizeModalOpen,
+            sort: isSortModalOpen,
+            new: isNewModalOpen,
+            magicWand: isMagicWandModalOpen,
+            brush: isBrushModalOpen,
+            paste: isPasteModalOpen,
+        };
+
+        Object.keys(openModals).forEach(modalName => {
+            if (openModals[modalName] && modalZIndices[modalName] > highestZ) {
+                highestZ = modalZIndices[modalName];
+                topModal = modalName;
+            }
+        });
+
+        return topModal;
+    }
+
+    manageBrushModal (newState) {
+        if(newState) {
+            this.bringModalToFront('brush');
+            this.setState({ isBrushModalOpen: true });
+        } else {
+            this.setState({ isBrushModalOpen: false });
+        }
+    }
+
+    updateBrushSettings (settings) {
+        this.setState({
+            brushSettings: settings
+        });
+    }
+
+    managePasteModal (newState, keepPasting = false) {
+        if(newState) {
+            this.bringModalToFront('paste');
+            this.setState({ isPasteModalOpen: true });
+        } else {
+            // When closing modal
+            if (keepPasting) {
+                // Modal confirmed - keep pasting mode active
+                this.setState({ isPasteModalOpen: false });
+            } else {
+                // Modal cancelled - disable pasting mode
+                this.setState({
+                    isPasteModalOpen: false,
+                    isPasting: false,
+                    currentTool: 'lasso'
+                });
+            }
+        }
+    }
+
+    applyPasteTransformations (transformData) {
+        // Apply transformations from modal confirmation
+        const { clipboard, mirrorX, mirrorY, rotation, scale } = transformData;
+
+        // Pre-render the clipboard to a canvas for performance
+        const clipboardCanvas = this.renderClipboardToCanvas(clipboard);
+
+        // Store the transformed clipboard and keep pasting mode active
+        this.setState({
+            clipboard: clipboard,
+            clipboardCanvas: clipboardCanvas,
+            isPasting: true, // Ensure pasting stays active
+            pasteTransformations: { mirrorX, mirrorY, rotation, scale }
+        });
+    }
+
+    renderClipboardToCanvas(clipboard) {
+        if (!clipboard || !clipboard.data) return null;
+
+        // Create a canvas with the clipboard data pre-rendered
+        let tempCanvas = document.createElement('canvas');
+        tempCanvas.width = clipboard.data[0].length;
+        tempCanvas.height = clipboard.data.length;
+        let tempCtx = tempCanvas.getContext('2d');
+
+        // Draw only the masked pixels
+        let tempImageData = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+        let tempBuffer = tempImageData.data;
+
+        for (let row = 0; row < clipboard.data.length; row++) {
+            for (let col = 0; col < clipboard.data[row].length; col++) {
+                let index = (row * tempCanvas.width + col) * 4;
+                let pixel = clipboard.data[row][col];
+
+                if (pixel && clipboard.mask[row][col]) {
+                    // Masked pixel - draw it
+                    tempBuffer[index] = pixel.r;
+                    tempBuffer[index + 1] = pixel.g;
+                    tempBuffer[index + 2] = pixel.b;
+                    tempBuffer[index + 3] = pixel.a;
+                } else {
+                    // Unmasked pixel - make it transparent
+                    tempBuffer[index] = 0;
+                    tempBuffer[index + 1] = 0;
+                    tempBuffer[index + 2] = 0;
+                    tempBuffer[index + 3] = 0;
+                }
+            }
+        }
+
+        tempCtx.putImageData(tempImageData, 0, 0);
+        return tempCanvas;
+    }
+
+    drawBrush (x, y) {
+        const { brushSettings, matrix, width, height, selectionMask } = this.state;
+        if (!matrix) return;
+
+        // Convert hex color to RGB
+        const hexToRgb = (hex) => {
+            const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+            return result ? {
+                r: parseInt(result[1], 16),
+                g: parseInt(result[2], 16),
+                b: parseInt(result[3], 16),
+                a: 255
+            } : { r: 0, g: 0, b: 0, a: 255 };
+        };
+
+        const color = hexToRgb(brushSettings.color);
+        const size = brushSettings.size;
+        const radius = Math.floor(size / 2);
+
+        // Clone the matrix to avoid direct mutation
+        let newMatrix = rgbx.cloneMatrix(matrix);
+
+        // Draw a circle for the brush
+        for (let dy = -radius; dy <= radius; dy++) {
+            for (let dx = -radius; dx <= radius; dx++) {
+                // Check if point is within circle
+                if (dx * dx + dy * dy <= radius * radius) {
+                    const px = x + dx;
+                    const py = y + dy;
+
+                    // Check bounds
+                    if (px >= 0 && px < width && py >= 0 && py < height) {
+                        // If there's a selection mask, only draw on selected pixels
+                        if (selectionMask) {
+                            if (selectionMask[py] && selectionMask[py][px]) {
+                                newMatrix[py][px] = { ...color };
+                            }
+                        } else {
+                            // No mask, draw everywhere
+                            newMatrix[py][px] = { ...color };
+                        }
+                    }
+                }
+            }
+        }
+
+        this.setState({ matrix: newMatrix });
     }
 
     copy () {
         if(!this.state.selectionMask) {
-            this.setState({ clipboard: null })
+            this.setState({ clipboard: null, clipboardCanvas: null })
             return
         }
         const clipboard = rgbx.extractMaskedRegion(this.state.matrix, this.state.selectionMask);
-        console.log('Clipboard:', clipboard);
-        this.setState({ clipboard });
+        // Pre-render the clipboard immediately after copying
+        const clipboardCanvas = this.renderClipboardToCanvas(clipboard);
+        this.setState({ clipboard, clipboardCanvas });
     }
 
     paste () {
-        // let newMatrix = rgbx.pasteMaskedRegion(this.state.matrix, this.state.clipboard, 2, 2);
-        // this.setState({ matrix: newMatrix })
-        if(this.state.isPasting) { // might need to check if other actions besides paste are active
-            // end paste
-            this.setState({ isPasting: false });
-        } else {
+        // Open paste modal and enable pasting mode if there's clipboard data
+        if(this.state.clipboard) {
+            // Enable pasting mode immediately so preview shows
             this.setState({ isPasting: true });
+            this.managePasteModal(true);
         }
     }
 
     pasteMouseDown (x, y) {
         let newMatrix = rgbx.pasteMaskedRegion(this.state.matrix, this.state.clipboard, x, y);
-        this.setState({ matrix: newMatrix })
+        this.saveToHistory();
+        this.setState({
+            matrix: newMatrix,
+            isPasting: false,
+            currentTool: 'lasso' // Reset to default tool after pasting
+        });
     }
 
+    saveToHistory () {
+        const { matrix, history, historyIndex } = this.state;
 
+        // Clone the current matrix to save it
+        const matrixSnapshot = rgbx.cloneMatrix(matrix);
+
+        // Remove any "future" history if we're not at the end
+        const newHistory = history.slice(0, historyIndex + 1);
+
+        // Add current state to history
+        newHistory.push(matrixSnapshot);
+
+        // Limit history to 50 states to prevent memory issues
+        const maxHistory = 50;
+        if (newHistory.length > maxHistory) {
+            newHistory.shift();
+            this.setState({
+                history: newHistory,
+                historyIndex: newHistory.length - 1
+            });
+        } else {
+            this.setState({
+                history: newHistory,
+                historyIndex: newHistory.length - 1
+            });
+        }
+    }
+
+    undo () {
+        const { history, historyIndex } = this.state;
+
+        if (historyIndex > 0) {
+            const newIndex = historyIndex - 1;
+            const previousMatrix = rgbx.cloneMatrix(history[newIndex]);
+
+            this.setState({
+                matrix: previousMatrix,
+                historyIndex: newIndex,
+                width: previousMatrix[0].length,
+                height: previousMatrix.length
+            });
+        }
+    }
+
+    redo () {
+        const { history, historyIndex } = this.state;
+
+        if (historyIndex < history.length - 1) {
+            const newIndex = historyIndex + 1;
+            const nextMatrix = rgbx.cloneMatrix(history[newIndex]);
+
+            this.setState({
+                matrix: nextMatrix,
+                historyIndex: newIndex,
+                width: nextMatrix[0].length,
+                height: nextMatrix.length
+            });
+        }
+    }
 
 
 
@@ -314,12 +699,17 @@ export default class App extends React.Component {
             this.state.height * scale,
         );
         
-        if(this.state.isPasting && this.state.clipboard) {
-            let { x, y } = this.state.cursor;
-            let copyMatrix = this.state.clipboard.data;
-            let buffer = rgbx.matrixToBuffer(copyMatrix);
-            let previewData = new ImageData(buffer, copyMatrix[0].length, copyMatrix.length);
-            mainCTX.putImageData(previewData, x, y);
+        if(this.state.isPasting && this.state.clipboardCanvas) {
+            let { cursor, clipboardCanvas } = this.state;
+
+            // Draw the pre-rendered clipboard canvas at cursor position
+            mainCTX.drawImage(
+                clipboardCanvas,
+                offset.x + cursor.x * scale,
+                offset.y + cursor.y * scale,
+                clipboardCanvas.width * scale,
+                clipboardCanvas.height * scale
+            );
         }
         this.drawMaskOverlay()
     }
@@ -356,22 +746,22 @@ export default class App extends React.Component {
     drawMaskOverlay () {
         const canvas = this.canvas.current;
         if (!canvas) return;
-        
+
         const ctx = canvas.getContext('2d');
         const maskMatrix = this.state.selectionMask;
         let { scale, offset } = this.state;
-        
+
         if (!maskMatrix || maskMatrix.length === 0) return;
-        
+
         const height = maskMatrix.length;
         const width = maskMatrix[0].length;
-        
-        // Draw semi-transparent fill
+
+        // Draw semi-transparent fill (orange)
         ctx.save();
         ctx.translate(offset.x, offset.y);
         ctx.scale(scale, scale);
-        ctx.fillStyle = 'rgba(0, 120, 255, 0.2)';
-        
+        ctx.fillStyle = 'rgba(255, 152, 0, 0.2)'; // Orange fill
+
         for (let y = 0; y < height; y++) {
             let runStart = null;
             for (let x = 0; x < width; x++) {
@@ -388,9 +778,9 @@ export default class App extends React.Component {
             ctx.fillRect(runStart, y, width - runStart, 1);
             }
         }
-        
-        // Draw border around mask edges
-        ctx.strokeStyle = 'rgba(0, 120, 255, 0.8)';
+
+        // Draw border around mask edges (orange)
+        ctx.strokeStyle = 'rgba(255, 152, 0, 0.8)'; // Orange border
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]); // Dashed line
         ctx.lineDashOffset = -performance.now() / 50; // Animate
@@ -426,7 +816,7 @@ export default class App extends React.Component {
         let sy = (y0 < y1) ? 1 : -1;
         let err = dx - dy;
 
-        let newMask = rgbx.cloneMatrix(this.state.selectionMask);
+        let newMask = rgbx.cloneMask(this.state.selectionMask);
 
         while(true) {
             if(newMask[y0] && newMask[y0][x0] != undefined) {
@@ -449,7 +839,7 @@ export default class App extends React.Component {
     }
 
     finalizeRectangleSelection (endPoint) {
-        let { startPoint, width, height } = this.state;
+        let { startPoint, width, height, selectionMask, isAdditiveSelection } = this.state;
         let rect = {
             x: Math.min(startPoint.x, endPoint.x),
             y: Math.min(startPoint.y, endPoint.y),
@@ -457,7 +847,15 @@ export default class App extends React.Component {
             height: Math.abs(startPoint.y - endPoint.y),
         }
 
-        let newMask = rgbx.createMask(width, height);
+        let newMask;
+        if (isAdditiveSelection && selectionMask) {
+            // Add to existing mask
+            newMask = rgbx.cloneMask(selectionMask);
+        } else {
+            // Create new mask
+            newMask = rgbx.createMask(width, height);
+        }
+
         for (let y = rect.y; y < rect.y + rect.height; y++) {
             for (let x = rect.x; x < rect.x + rect.width; x++) {
                 if (newMask[y] && newMask[y][x] != undefined) {
@@ -473,7 +871,7 @@ export default class App extends React.Component {
         let mask = this.state.selectionMask;
         if(!mask) return;
 
-        let newMask = rgbx.cloneMatrix(mask);
+        let newMask = rgbx.cloneMask(mask);
         let height = newMask.length;
         let width = newMask[0].length;
 
@@ -518,20 +916,43 @@ export default class App extends React.Component {
         }
 
         let pos = this.getMousePosition(event);
+
+        // Allow pasting anywhere, even outside bounds
         if(this.state.isPasting) {
             this.pasteMouseDown(pos.x, pos.y);
+            return;
         }
 
-        this.setState({ 
+        // Check if click is within image bounds for selection tools
+        if (pos.x < 0 || pos.y < 0 || pos.x >= this.state.width || pos.y >= this.state.height) {
+            // Click is outside image bounds, ignore it for selection tools
+            return;
+        }
+
+        // For drawing tools (pencil, etc.), preserve the mask. For selection tools, clear it unless Ctrl is held.
+        const isDrawingTool = this.state.currentTool === 'pencil';
+        const isCtrlHeld = event.ctrlKey || event.metaKey; // Support both Ctrl (Windows/Linux) and Cmd (Mac)
+        const shouldPreserveMask = isDrawingTool || isCtrlHeld;
+
+        this.setState({
             isDrawing: true,
             startPoint: pos,
             previousPoint: pos,
-            selectionMask: null,
+            selectionMask: shouldPreserveMask ? this.state.selectionMask : null,
             tempSelectionRect: null,
+            isAdditiveSelection: isCtrlHeld, // Track if Ctrl was held for rectangle selection
         })
 
         if(this.state.currentTool == 'lasso') {
-            let newMask = rgbx.createMask(this.state.width, this.state.height);
+            let newMask;
+            if (isCtrlHeld && this.state.selectionMask) {
+                // Add to existing mask
+                newMask = rgbx.cloneMask(this.state.selectionMask);
+            } else {
+                // Create new mask
+                newMask = rgbx.createMask(this.state.width, this.state.height);
+            }
+
             if(newMask[pos.y]?.[pos.x] != undefined) {
                 newMask[pos.y][pos.x] = true;
                 this.setState({ selectionMask: newMask })
@@ -539,15 +960,32 @@ export default class App extends React.Component {
         }
 
         if (this.state.currentTool == 'magicwand') {
-            const newMask = rgbx.createMagicWandMask(
+            const newSelectionMask = rgbx.createMagicWandMask(
                 this.state.matrix,
                 pos.x,
                 pos.y,
                 this.state.tolerance,
-                true // contiguous
+                this.state.contiguous
             );
-            
-            this.setState({ selectionMask: newMask });
+
+            // If Ctrl is held and there's an existing mask, merge them
+            if (isCtrlHeld && this.state.selectionMask) {
+                const combinedMask = rgbx.cloneMask(this.state.selectionMask);
+                for (let y = 0; y < newSelectionMask.length; y++) {
+                    for (let x = 0; x < newSelectionMask[y].length; x++) {
+                        if (newSelectionMask[y][x]) {
+                            combinedMask[y][x] = true;
+                        }
+                    }
+                }
+                this.setState({ selectionMask: combinedMask });
+            } else {
+                this.setState({ selectionMask: newSelectionMask });
+            }
+        }
+
+        if (this.state.currentTool == 'pencil') {
+            this.drawBrush(pos.x, pos.y);
         }
     }
 
@@ -564,7 +1002,10 @@ export default class App extends React.Component {
 
         this.setState({ isDrawing: false, tempSelectionRect: null });
 
-        if (currentTool == 'rectangle') {
+        if (currentTool == 'pencil') {
+            // Save to history after finishing brush stroke
+            this.saveToHistory();
+        } else if (currentTool == 'rectangle') {
             // let { offsetX, offsetY } = event.nativeEvent;
             // let endPoint = { x: Math.floor(offsetX), y: Math.floor(offsetY) };
             this.finalizeRectangleSelection(pos);
@@ -594,8 +1035,15 @@ export default class App extends React.Component {
 
 
         if(!this.state.isDrawing) return;
-        
+
         let { currentTool, startPoint, previousPoint } = this.state;
+
+        if(currentTool == 'pencil') {
+            // Continue drawing while dragging
+            if(pos.x >= 0 && pos.y >= 0 && pos.x < this.state.width && pos.y < this.state.height) {
+                this.drawBrush(pos.x, pos.y);
+            }
+        }
 
         if(currentTool == 'lasso') {
             if(previousPoint) {
@@ -654,17 +1102,28 @@ export default class App extends React.Component {
     }
 
     render() {
+        const topModalName = this.getTopModalName();
+
         return (
             <div className='main-wrapper'>
                 <div className='tools-wrapper'>
                     <div className='utility-wrapper'>
+                        <button className='tool' onClick={this.undo} disabled={this.state.historyIndex <= 0}>undo</button>
+                        <button className='tool' onClick={this.redo} disabled={this.state.historyIndex >= this.state.history.length - 1}>redo</button>
                         <button className='tool' onClick={(e) => { this.manageNewModal(true) }}>new</button>
                         <button className='tool' onClick={(e) => { this.openDialog() }}>open</button>
                         <button className='tool' onClick={(e) => { this.manageResizeModal(true) }}>resize</button>
                         <button className='tool' onClick={(e) => { this.manageSaveModal(true) }}>save</button>
                         <button className='tool' onClick={()=>{this.changeTool('rectangle')}}>rectangle</button>
                         <button className='tool' onClick={()=>{this.changeTool('lasso')}}>lasso</button>
-                        <button className='tool' onClick={()=>{this.changeTool('magicwand')}}>magic wand</button>
+                        <button className='tool' onClick={(e) => {
+                            this.changeTool('magicwand');
+                            this.manageMagicWandModal(true);
+                        }}>magic wand</button>
+                        <button className='tool' onClick={(e) => {
+                            this.changeTool('pencil');
+                            this.manageBrushModal(true);
+                        }}>pencil</button>
                     </div>
                     <div className='style-wrapper'>
                         <button className='tool' onClick={this.invert}>invert</button>
@@ -682,8 +1141,6 @@ export default class App extends React.Component {
                         onMouseLeave={this.handleMouseUp}
                         onMouseMove={this.handleMouseMove}
                         onWheel={this.handleScroll}
-                        width={this.state.width}
-                        height={this.state.height}
                     >
                     </canvas>
                     <div className='details-wrapper'>
@@ -692,14 +1149,111 @@ export default class App extends React.Component {
                         <div className='detail-item'><span className='detail-label'>height </span><span className='detail-value'>{`${this.state.height}`}</span></div>
                     </div>
                 </div>
-                {this.state.isSaveModalOpen ? 
-                (<SaveModal cancel={this.manageSaveModal} confirm={this.save}/>) : <span/>}
-                {this.state.isResizeModalOpen ? 
-                (<ResizeModal cancel={this.manageResizeModal} confirm={this.resize}/>) : <span/>}
-                {this.state.isSortModalOpen ? 
-                (<SortModal cancel={this.manageSortModal} confirm={this.sort} />) : <span/>}
-                {this.state.isNewModalOpen ? 
-                (<NewModal cancel={this.manageNewModal} confirm={this.newCanvas} />) : <span/>}
+                {this.state.isSaveModalOpen ?
+                (<SaveModal
+                    cancel={this.manageSaveModal}
+                    confirm={this.save}
+                    initialPosition={this.state.modalPositions.save}
+                    onPositionChange={(pos) => this.saveModalPosition('save', pos)}
+                    isActive={true}
+                    zIndex={this.state.modalZIndices.save}
+                    onActivate={() => this.bringModalToFront('save')}
+                    isTopModal={topModalName === 'save'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="utility"
+                />) : <span/>}
+                {this.state.isResizeModalOpen ?
+                (<ResizeModal
+                    cancel={this.manageResizeModal}
+                    confirm={this.resize}
+                    initialPosition={this.state.modalPositions.resize}
+                    onPositionChange={(pos) => this.saveModalPosition('resize', pos)}
+                    isActive={true}
+                    zIndex={this.state.modalZIndices.resize}
+                    onActivate={() => this.bringModalToFront('resize')}
+                    isTopModal={topModalName === 'resize'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="utility"
+                />) : <span/>}
+                {this.state.isSortModalOpen ?
+                (<SortModal
+                    cancel={this.manageSortModal}
+                    confirm={this.sort}
+                    initialPosition={this.state.modalPositions.sort}
+                    onPositionChange={(pos) => this.saveModalPosition('sort', pos)}
+                    isActive={true}
+                    zIndex={this.state.modalZIndices.sort}
+                    onActivate={() => this.bringModalToFront('sort')}
+                    isTopModal={topModalName === 'sort'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="tool"
+                />) : <span/>}
+                {this.state.isNewModalOpen ?
+                (<NewModal
+                    cancel={this.manageNewModal}
+                    confirm={this.newCanvas}
+                    initialPosition={this.state.modalPositions.new}
+                    onPositionChange={(pos) => this.saveModalPosition('new', pos)}
+                    isActive={true}
+                    zIndex={this.state.modalZIndices.new}
+                    onActivate={() => this.bringModalToFront('new')}
+                    isTopModal={topModalName === 'new'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="utility"
+                />) : <span/>}
+                {this.state.isMagicWandModalOpen ?
+                (<MagicWandModal
+                    cancel={this.manageMagicWandModal}
+                    confirm={(settings) => {
+                        this.updateMagicWandSettings(settings);
+                    }}
+                    initialTolerance={this.state.tolerance}
+                    initialContiguous={this.state.contiguous}
+                    initialPosition={this.state.modalPositions.magicWand}
+                    onPositionChange={(pos) => this.saveModalPosition('magicWand', pos)}
+                    isActive={this.state.currentTool === 'magicwand'}
+                    zIndex={this.state.modalZIndices.magicWand}
+                    onActivate={() => {
+                        this.bringModalToFront('magicWand');
+                        this.changeTool('magicwand');
+                    }}
+                    isTopModal={topModalName === 'magicWand'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="selection"
+                />) : <span/>}
+                {this.state.isBrushModalOpen ?
+                (<BrushModal
+                    cancel={this.manageBrushModal}
+                    confirm={(settings) => {
+                        this.updateBrushSettings(settings);
+                    }}
+                    initialBrushSettings={this.state.brushSettings}
+                    initialPosition={this.state.modalPositions.brush}
+                    onPositionChange={(pos) => this.saveModalPosition('brush', pos)}
+                    isActive={this.state.currentTool === 'pencil'}
+                    zIndex={this.state.modalZIndices.brush}
+                    onActivate={() => {
+                        this.bringModalToFront('brush');
+                        this.changeTool('pencil');
+                    }}
+                    isTopModal={topModalName === 'brush'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="tool"
+                />) : <span/>}
+                {this.state.isPasteModalOpen ?
+                (<PasteModal
+                    onCancel={this.managePasteModal}
+                    onConfirm={this.applyPasteTransformations}
+                    clipboard={this.state.clipboard}
+                    initialPosition={this.state.modalPositions.paste}
+                    onPositionChange={(pos) => this.saveModalPosition('paste', pos)}
+                    isActive={true}
+                    zIndex={this.state.modalZIndices.paste}
+                    onActivate={() => this.bringModalToFront('paste')}
+                    isTopModal={topModalName === 'paste'}
+                    onCloseAll={this.closeAllModals}
+                    modalType="utility"
+                />) : <span/>}
             </div>
         )
     }

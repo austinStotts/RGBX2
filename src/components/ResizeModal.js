@@ -2,7 +2,7 @@ import * as React from 'react';
 import ToolModal from './ToolModal';
 
 export default function ResizeModal (props) {
-    let { cancel, confirm } = props;
+    let { cancel, confirm, initialPosition, onPositionChange, isActive, zIndex, onActivate, isTopModal, onCloseAll, modalType } = props;
 
     let currentScale = '2';
 
@@ -17,7 +17,19 @@ export default function ResizeModal (props) {
     }
 
     return (
-        <ToolModal title={'Resize'} onConfirm={submit} onCancel={(e) => { cancel(false) }}>
+        <ToolModal
+            title={'Resize'}
+            onConfirm={submit}
+            onCancel={(e) => { cancel(false) }}
+            initialPosition={initialPosition}
+            onPositionChange={onPositionChange}
+            isActive={isActive}
+            zIndex={zIndex}
+            onActivate={onActivate}
+            isTopModal={isTopModal}
+            onCloseAll={onCloseAll}
+            modalType={modalType}
+        >
             <input autoFocus onChange={handleChange} placeholder='scale' className='resize-modal-input'></input>
         </ToolModal>
     )
